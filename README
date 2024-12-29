@@ -1,0 +1,36 @@
+# Gestión de Cursos
+
+Proyecto de escritorio (Tkinter + MySQL) para gestionar Cursos y Alumnos.
+
+## Requisitos
+
+- Python 3.8+
+- mysql-connector-python
+- Una base de datos MySQL con el nombre `empresa_cursos`
+- Tablas creadas (Cursos, Alumnos, etc.) siguiendo la estructura:
+
+```sql
+CREATE TABLE IF NOT EXISTS Cursos (
+    id_curso INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    descripcion TEXT,
+    fecha_inicio DATE NOT NULL,
+    fecha_termino DATE NOT NULL,
+    modalidad ENUM('Presencial', 'Elearning') NOT NULL,
+    ubicacion VARCHAR(200)
+);
+
+CREATE TABLE IF NOT EXISTS Alumnos (
+    id_alumno INT AUTO_INCREMENT PRIMARY KEY,
+    nombre_completo VARCHAR(150) NOT NULL,
+    rut VARCHAR(20) UNIQUE NOT NULL,
+    correo VARCHAR(100),
+    telefono VARCHAR(20),
+    profesion VARCHAR(50),
+    direccion VARCHAR(200),
+    ciudad VARCHAR(50),
+    comuna VARCHAR(50)
+);
+
+-- etc. para Inscripciones, Facturación, ControlInterno, etc.
+
