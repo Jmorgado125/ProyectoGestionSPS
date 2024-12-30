@@ -20,18 +20,40 @@ def fetch_courses():
         return results
     return []
 
-def insert_course(nombre_curso, descripcion, modalidad, codigo_sence, codigo_elearning):
-    """Inserta un nuevo curso."""
+def insert_course(
+    id_curso, 
+    nombre_curso, 
+    modalidad, 
+    codigo_sence, 
+    codigo_elearning, 
+    horas_cronologicas, 
+    valor
+):
+    """
+    Inserta un nuevo curso con cálculo de horas pedagógicas y valor del curso.
+    """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
+            horas_pedagogicas = round((horas_cronologicas * 4 / 3), 1)
             query = """
-                INSERT INTO Cursos 
-                (nombre_curso, descripcion, modalidad, codigo_sence, codigo_elearning)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO Cursos
+                (id_curso, nombre_curso, modalidad,
+                 codigo_sence, codigo_elearning,
+                 horas_cronologicas, horas_pedagogicas, valor)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(query, (nombre_curso, descripcion, modalidad, codigo_sence, codigo_elearning))
+            cursor.execute(query, (
+                id_curso,
+                nombre_curso,
+                modalidad,
+                codigo_sence,
+                codigo_elearning,
+                horas_cronologicas,
+                horas_pedagogicas,
+                valor
+            ))
             conn.commit()
         except Exception as e:
             print("Error al insertar curso:", e)
@@ -42,28 +64,188 @@ def insert_course(nombre_curso, descripcion, modalidad, codigo_sence, codigo_ele
         return True
     return False
 
+
+def update_course(
+    id_curso,
+    nombre_curso=None,
+    modalidad=None,
+    codigo_sence=None,
+    codigo_elearning=None,
+    horas_cronologicas=None,
+    horas_pedagogicas=None,
+    valor=None
+):
+    """
+    Actualiza los datos de un curso existente, incluido el 'valor'.
+    Si 'horas_cronologicas' se cambia, recalcula 'horas_pedagogicas' 
+    a menos que se haya pasado manualmente.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            # 1) Obtener el curso actual
+            cursor.execute("SELECT * FROM Cursos WHERE id_curso = %s", (id_curso,))
+            course = cursor.fetchone()
+            if not course:
+                print(f"Curso con ID {id_curso} no encontrado.")
+                return False
+
+            # Asumiendo orden de columnas:
+            #  course[0] => id_curso
+            #  course[1] => nombre_curso
+            #  course[2] => modalidad
+            #  course[3] => codigo_sence
+            #  course[4] => codigo_elearning
+            #  course[5] => horas_cronologicas
+            #  course[6] => horas_pedagogicas
+            #  course[7] => valor
+
+            current_nombre   = course[1]
+            current_mod      = course[2]
+            current_sence    = course[3]
+            current_elearn   = course[4]
+            current_h_cron   = course[5]
+            current_h_pedag  = course[6]
+            current_valor    = course[7]
+
+            # 2) Determinar horas_cronologicas
+            new_horas_cron = horas_cronologicas if horas_cronologicas is not None else current_h_cron
+
+            # 3) Determinar horas_pedagogicas
+            if horas_pedagogicas is not None:
+                # Si nos pasan un valor manual, lo usamos tal cual
+                new_horas_pedag = horas_pedagogicas
+            else:
+                # Si no pasó horas_pedagogicas, la calculamos
+                new_horas_pedag = round((new_horas_cron * 4 / 3), 1)
+
+            # 4) Determinar valor
+            new_valor = valor if valor is not None else current_valor
+
+            # 5) Armamos la query de UPDATE
+            query = """
+                UPDATE Cursos
+                SET nombre_curso = %s,
+                    modalidad = %s,
+                    codigo_sence = %s,
+                    codigo_elearning = %s,
+                    horas_cronologicas = %s,
+                    horas_pedagogicas = %s,
+                    valor = %s
+                WHERE id_curso = %s
+            """
+
+            # 6) Ejecutar el update
+            cursor.execute(query, (
+                nombre_curso or current_nombre,
+                modalidad or current_mod,
+                codigo_sence if codigo_sence is not None else current_sence,
+                codigo_elearning if codigo_elearning is not None else current_elearn,
+                new_horas_cron,
+                new_horas_pedag,
+                new_valor,
+                id_curso
+            ))
+            conn.commit()
+
+        except Exception as e:
+            print("Error al actualizar curso:", e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+        return True
+    return False
+
+def delete_course_by_id(id_curso):
+    """
+    Elimina un curso de la tabla 'Cursos' usando su id_curso como criterio.
+    Retorna True si se eliminó correctamente, False en caso contrario.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = "DELETE FROM Cursos WHERE id_curso = %s"
+            cursor.execute(query, (id_curso,))
+            conn.commit()
+            if cursor.rowcount > 0:
+                return True
+            else:
+                return False
+        except Exception as e:
+            print("Error al eliminar curso:", e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
 # =======================================
-#               ALUMNOS
+#               ALUMNOS y Matricula 
 # =======================================
-def enroll_student(rut, id_curso, numero_acta,
-                   fecha_inscripcion, fecha_termino_condicional, anio_inscripcion):
+def validate_alumno_exists(rut):
+    """Valida si un alumno existe en la base de datos."""
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = "SELECT COUNT(*) FROM Alumnos WHERE rut = %s"
+            cursor.execute(query, (rut,))
+            result = cursor.fetchone()
+            return result[0] > 0
+        except Exception as e:
+            print("Error al validar alumno:", e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def validate_curso_exists(id_curso):
+    """Valida si un curso existe en la base de datos."""
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = "SELECT COUNT(*) FROM Cursos WHERE id_curso = %s"
+            cursor.execute(query, (id_curso,))
+            result = cursor.fetchone()
+            return result[0] > 0
+        except Exception as e:
+            print("Error al validar curso:", e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def enroll_student(rut, id_curso, numero_acta, fecha_inscripcion, fecha_termino_condicional, anio_inscripcion):
     """
     Inserta una fila en 'Inscripciones', usando la columna 'numero_acta'.
+    Retorna (True, None) si OK, o (False, str_error) si ocurre un error.
     """
+    if not validate_alumno_exists(rut):
+        return (False, "El alumno no existe.")
+    if not validate_curso_exists(id_curso):
+        return (False, "El curso no existe.")
+
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
             query = """
                 INSERT INTO Inscripciones
-                (id_alumno, id_curso, numero_acta, 
+                (id_alumno, id_curso, numero_acta,
                  fecha_inscripcion, fecha_termino_condicional, anio_inscripcion)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """
             cursor.execute(query, (
                 rut,
                 id_curso,
-                numero_acta,                  # <-- Nuevo
+                numero_acta,
                 fecha_inscripcion,
                 fecha_termino_condicional,
                 anio_inscripcion
@@ -71,12 +253,33 @@ def enroll_student(rut, id_curso, numero_acta,
             conn.commit()
         except Exception as e:
             print("Error al inscribir alumno:", e)
-            return False
+            return (False, str(e))
         finally:
             cursor.close()
             conn.close()
-        return True
-    return False
+        return (True, None)
+    return (False, "No hay conexión con la base de datos")
+
+
+def fetch_inscriptions():
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+              SELECT id_inscripcion, id_alumno, id_curso, numero_acta,
+                     fecha_inscripcion, fecha_termino_condicional, anio_inscripcion
+              FROM Inscripciones
+            """)
+            results = cursor.fetchall()
+        except Exception as e:
+            print("Error al obtener inscripciones:", e)
+            results = []
+        finally:
+            cursor.close()
+            conn.close()
+        return results
+    return []
 
 
 
