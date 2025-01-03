@@ -1,87 +1,100 @@
-CREATE TABLE IF NOT EXISTS Alumnos (
-    rut VARCHAR(10) PRIMARY KEY, -- Rut en formato xxxxxxxx-x
-    nombre VARCHAR(100) NOT NULL,
-    apellido VARCHAR(100) NOT NULL,
-    correo VARCHAR(100),
-    telefono BIGINT, -- Teléfono numérico de 9 cifras
-    profesion VARCHAR(100),
-    direccion VARCHAR(255),
-    comuna VARCHAR(100),
-    ciudad VARCHAR(100),
-    metodo_llegada ENUM('Particular', 'Empresa') NOT NULL,
-    id_empresa INT,
-    FOREIGN KEY (id_empresa) REFERENCES Empresa(id_empresa)
-);
-
--- Tabla: Empresa
-CREATE TABLE IF NOT EXISTS Empresa (
-    id_empresa INT AUTO_INCREMENT PRIMARY KEY,
-    nombre_empresa VARCHAR(255) NOT NULL,
-    ordenSence INT, -- Orden SENCE como número entero
-    idfolio INT -- Id de folio como número entero
+-- Tabla: Alumnos
+-- Contiene la información personal de los alumnos registrados.
+CREATE TABLE IF NOT EXISTS alumnos (
+    rut VARCHAR NOT NULL PRIMARY KEY, -- Identificador único del alumno (formato de RUT).
+    nombre VARCHAR NOT NULL,          -- Nombre del alumno.
+    apellido VARCHAR NOT NULL,        -- Apellido del alumno.
+    correo VARCHAR,                   -- Correo electrónico del alumno (opcional).
+    telefono BIGINT,                  -- Número de teléfono del alumno (opcional).
+    profesion VARCHAR,                -- Profesión del alumno (opcional).
+    direccion VARCHAR,                -- Dirección residencial del alumno (opcional).
+    comuna VARCHAR,                   -- Comuna de residencia del alumno (opcional).
+    ciudad VARCHAR                    -- Ciudad de residencia del alumno (opcional).
 );
 
 -- Tabla: Cursos
-CREATE TABLE IF NOT EXISTS Cursos (
-    id_curso INT AUTO_INCREMENT PRIMARY KEY,
-    nombre_curso VARCHAR(255) NOT NULL,
-    descripcion TEXT,
-    modalidad ENUM('Presencial', 'Online') NOT NULL,
-    codigo_sence INT, -- Código SENCE como número entero
-    codigo_elearning INT -- Código e-learning como número entero
+-- Define los cursos ofrecidos, incluyendo su descripción, modalidad y códigos asociados.
+CREATE TABLE IF NOT EXISTS cursos (
+    id_curso VARCHAR NOT NULL PRIMARY KEY, -- Identificador único del curso.
+    nombre_curso VARCHAR NOT NULL,         -- Nombre del curso.
+    modalidad ENUM NOT NULL,               -- Modalidad del curso (Presencial u Online).
+    codigo_sence INT,                      -- Código SENCE del curso (opcional).
+    codigo_elearning INT,                  -- Código de plataforma e-learning del curso (opcional).
+    horas_cronologicas INT NOT NULL DEFAULT 0, -- Cantidad de horas cronológicas del curso.
+    horas_pedagogicas FLOAT DEFAULT 0.0    -- Cantidad de horas pedagógicas del curso.
+);
+
+-- Tabla: Empresa
+-- Contiene los datos de las empresas asociadas a los alumnos o cursos.
+CREATE TABLE IF NOT EXISTS empresa (
+    id_empresa INT NOT NULL PRIMARY KEY, -- Identificador único de la empresa.
+    nombre_empresa VARCHAR NOT NULL,     -- Nombre de la empresa.
+    ordenSence INT,                      -- Número de orden SENCE asociado (opcional).
+    idfolio INT                          -- Identificador de folio de la empresa (opcional).
 );
 
 -- Tabla: Inscripciones
-CREATE TABLE IF NOT EXISTS Inscripciones (
-    id_inscripcion INT AUTO_INCREMENT PRIMARY KEY,
-    id_alumno VARCHAR(10), -- Relación con Alumnos
-    id_curso INT, -- Relación con Cursos
-    fecha_inscripcion DATE NOT NULL,
-    fecha_termino_condicional DATE,
-    anio_inscripcion YEAR NOT NULL,
-    FOREIGN KEY (id_alumno) REFERENCES Alumnos(rut),
-    FOREIGN KEY (id_curso) REFERENCES Cursos(id_curso)
+-- Relaciona alumnos con cursos, registrando la inscripción de un alumno en un curso.
+CREATE TABLE IF NOT EXISTS inscripciones (
+    id_inscripcion INT NOT NULL PRIMARY KEY, -- Identificador único de la inscripción.
+    id_alumno VARCHAR,                       -- Identificador del alumno inscrito (relación con `alumnos`).
+    id_curso VARCHAR NOT NULL,               -- Identificador del curso inscrito (relación con `cursos`).
+    fecha_inscripcion DATE NOT NULL,         -- Fecha en que se realizó la inscripción.
+    fecha_termino_condicional DATE,          -- Fecha condicional de término de inscripción (opcional).
+    anio_inscripcion YEAR NOT NULL,          -- Año en que se realizó la inscripción.
+    metodo_llegada ENUM NOT NULL,            -- Método de llegada del alumno (Particular o Empresa).
+    id_empresa INT,                          -- Identificador de la empresa asociada (relación con `empresa`).
+    numero_acta VARCHAR NOT NULL,            -- Número del acta de inscripción.
+    FOREIGN KEY (id_alumno) REFERENCES alumnos(rut), -- Relación con la tabla `alumnos`.
+    FOREIGN KEY (id_curso) REFERENCES cursos(id_curso), -- Relación con la tabla `cursos`.
+    FOREIGN KEY (id_empresa) REFERENCES empresa(id_empresa) -- Relación con la tabla `empresa`.
 );
 
 -- Tabla: Pagos
-CREATE TABLE IF NOT EXISTS Pagos (
-    id_pago INT AUTO_INCREMENT PRIMARY KEY,
-    id_inscripcion INT, -- Relación con Inscripciones
-    tipo_pago ENUM('Contado', 'Pagaré') NOT NULL,
-    modalidad_pago ENUM('Completo', 'Diferido') NOT NULL,
-    num_documento VARCHAR(50),
-    cuotas_totales INT,
-    valor DECIMAL(10, 2) NOT NULL,
-    estado BOOLEAN NOT NULL,
-    cuotas_pagadas INT,
-    FOREIGN KEY (id_inscripcion) REFERENCES Inscripciones(id_inscripcion)
+-- Contiene la información de los pagos realizados por los alumnos o empresas.
+CREATE TABLE IF NOT EXISTS pagos (
+    id_pago INT NOT NULL PRIMARY KEY,        -- Identificador único del pago.
+    id_inscripcion INT,                      -- Identificador de la inscripción asociada (relación con `inscripciones`).
+    tipo_pago ENUM NOT NULL,                 -- Tipo de pago (Contado o Pagaré).
+    modalidad_pago ENUM NOT NULL,            -- Modalidad del pago (Completo o Diferido).
+    num_documento VARCHAR,                   -- Número del documento del pago (opcional).
+    cuotas_totales INT,                      -- Número total de cuotas (opcional).
+    valor DECIMAL NOT NULL,                  -- Monto del pago.
+    estado TINYINT NOT NULL,                 -- Estado del pago (0 = pendiente, 1 = completado).
+    cuotas_pagadas INT,                      -- Número de cuotas pagadas (opcional).
+    FOREIGN KEY (id_inscripcion) REFERENCES inscripciones(id_inscripcion) -- Relación con la tabla `inscripciones`.
 );
 
 -- Tabla: PagosDetalle
-CREATE TABLE IF NOT EXISTS PagosDetalle (
-    id_pago INT, -- Relación con Pagos
-    tipo_contribuyente ENUM('Alumno', 'Empresa', 'SENCE') NOT NULL,
-    monto_contribuido DECIMAL(10, 2) NOT NULL,
-    PRIMARY KEY (id_pago, tipo_contribuyente),
-    FOREIGN KEY (id_pago) REFERENCES Pagos(id_pago)
+-- Detalla las contribuciones específicas realizadas por los alumnos, empresas o SENCE.
+CREATE TABLE IF NOT EXISTS pagosdetalle (
+    id_pago INT NOT NULL,                       -- Identificador del pago (relación con `pagos`).
+    tipo_contribuyente ENUM NOT NULL,           -- Tipo de contribuyente (Alumno, Empresa o SENCE).
+    monto_contribuido DECIMAL NOT NULL,         -- Monto aportado por el contribuyente.
+    PRIMARY KEY (id_pago, tipo_contribuyente),  -- Llave primaria compuesta por el pago y tipo de contribuyente.
+    FOREIGN KEY (id_pago) REFERENCES pagos(id_pago) -- Relación con la tabla `pagos`.
 );
 
 -- Tabla: Tramitaciones
-CREATE TABLE IF NOT EXISTS Tramitaciones (
-    id_tramitacion INT AUTO_INCREMENT PRIMARY KEY,
-    id_alumno VARCHAR(10), -- Relación con Alumnos
-    tipo_tramitacion ENUM('Habilitación', 'Tripulación') NOT NULL,
-    fecha DATE NOT NULL,
-    n_carta_internalizacion VARCHAR(50),
-    n_recibo_directemar VARCHAR(50),
-    estado BOOLEAN NOT NULL,
-    observacion TEXT,
-    FOREIGN KEY (id_alumno) REFERENCES Alumnos(rut)
+-- Contiene la información sobre trámites específicos realizados por los alumnos.
+CREATE TABLE IF NOT EXISTS tramitaciones (
+    id_tramitacion INT NOT NULL PRIMARY KEY, -- Identificador único de la tramitación.
+    id_alumno VARCHAR,                       -- Identificador del alumno (relación con `alumnos`).
+    tipo_tramitacion ENUM NOT NULL,          -- Tipo de tramitación (Habilitación o Tripulación).
+    fecha DATE NOT NULL,                     -- Fecha de la tramitación.
+    n_carta_internalizacion VARCHAR,         -- Número de carta de internalización (opcional).
+    n_recibo_directemar VARCHAR,             -- Número de recibo Directemar (opcional).
+    estado TINYINT NOT NULL,                 -- Estado de la tramitación (0 = pendiente, 1 = completada).
+    observacion TEXT,                        -- Observaciones adicionales sobre la tramitación (opcional).
+    FOREIGN KEY (id_alumno) REFERENCES alumnos(rut) -- Relación con la tabla `alumnos`.
 );
-CREATE TABLE IF NOT EXISTS Usuarios (
-    id_usuario INT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    password VARCHAR(100) NOT NULL,
-    nombre VARCHAR(100) NOT NULL,
-    rol ENUM('admin', 'usuario') DEFAULT 'usuario'
+
+-- Tabla: Usuarios
+-- Contiene la información de los usuarios que tienen acceso al sistema.
+CREATE TABLE IF NOT EXISTS usuarios (
+    id_usuario INT NOT NULL PRIMARY KEY, -- Identificador único del usuario.
+    username VARCHAR NOT NULL,          -- Nombre de usuario único.
+    password VARCHAR NOT NULL,          -- Contraseña del usuario.
+    nombre VARCHAR NOT NULL,            -- Nombre del usuario.
+    rol ENUM('admin', 'usuario') DEFAULT 'usuario' -- Rol del usuario (admin o usuario estándar).
 );

@@ -1,4 +1,39 @@
 from database.db_config import connect_db
+import re
+from datetime import datetime
+
+# =======================================
+#          UTILIDAD: VALIDAR RUT
+# =======================================
+
+def is_valid_chilean_rut(rut_str):
+    """
+    Valida formato y dígito verificador de un RUT chileno de forma básica.
+    Formato esperado: XX.XXX.XXX-X o sin puntos, e.g. 12345678-9
+    Esta función es simplificada. Para casos reales, 
+    usar una librería o algoritmo más completo.
+    """
+    # Quitar puntos y convertir a mayúscula
+    rut_str = rut_str.replace(".", "").upper().strip()
+
+    # Verificar patrón básico: números, guión y dígito verificador (0-9 o K)
+    if not re.match(r'^\d{1,8}-[\dK]$', rut_str):
+        return False
+
+    # Separar cuerpo y dígito verificador
+    cuerpo, dv = rut_str.split("-")
+
+    # Calcular dígito verificador
+    suma = 0
+    factor = 2
+    for c in reversed(cuerpo):
+        suma += int(c) * factor
+        factor = 9 if factor == 7 else factor + 1
+    # Resto
+    resto = 11 - (suma % 11)
+    dv_calc = 'K' if resto == 10 else '0' if resto == 11 else str(resto)
+
+    return dv == dv_calc
 
 # =======================================
 #                CURSOS
@@ -64,7 +99,6 @@ def insert_course(
         return True
     return False
 
-
 def update_course(
     id_curso,
     nombre_curso=None,
@@ -92,7 +126,7 @@ def update_course(
                 print(f"Curso con ID {id_curso} no encontrado.")
                 return False
 
-            # Asumiendo orden de columnas:
+            # Asumiendo orden de columnas en la tabla Cursos:
             #  course[0] => id_curso
             #  course[1] => nombre_curso
             #  course[2] => modalidad
@@ -184,7 +218,7 @@ def delete_course_by_id(id_curso):
     return False
 
 # =======================================
-#               ALUMNOS y Matricula 
+#               ALUMNOS
 # =======================================
 def validate_alumno_exists(rut):
     """Valida si un alumno existe en la base de datos."""
@@ -204,100 +238,107 @@ def validate_alumno_exists(rut):
             conn.close()
     return False
 
-def validate_curso_exists(id_curso):
-    """Valida si un curso existe en la base de datos."""
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = "SELECT COUNT(*) FROM Cursos WHERE id_curso = %s"
-            cursor.execute(query, (id_curso,))
-            result = cursor.fetchone()
-            return result[0] > 0
-        except Exception as e:
-            print("Error al validar curso:", e)
-            return False
-        finally:
-            cursor.close()
-            conn.close()
-    return False
-
-def enroll_student(rut, id_curso, numero_acta, fecha_inscripcion, fecha_termino_condicional, anio_inscripcion):
-    """
-    Inserta una fila en 'Inscripciones', usando la columna 'numero_acta'.
-    Retorna (True, None) si OK, o (False, str_error) si ocurre un error.
-    """
-    if not validate_alumno_exists(rut):
-        return (False, "El alumno no existe.")
-    if not validate_curso_exists(id_curso):
-        return (False, "El curso no existe.")
-
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO Inscripciones
-                (id_alumno, id_curso, numero_acta,
-                 fecha_inscripcion, fecha_termino_condicional, anio_inscripcion)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            cursor.execute(query, (
-                rut,
-                id_curso,
-                numero_acta,
-                fecha_inscripcion,
-                fecha_termino_condicional,
-                anio_inscripcion
-            ))
-            conn.commit()
-        except Exception as e:
-            print("Error al inscribir alumno:", e)
-            return (False, str(e))
-        finally:
-            cursor.close()
-            conn.close()
-        return (True, None)
-    return (False, "No hay conexión con la base de datos")
+def insert_student(rut, nombre, apellido, correo=None, telefono=None, 
+                   profesion=None, direccion=None, comuna=None, ciudad=None):
 
 
-def fetch_inscriptions():
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-              SELECT id_inscripcion, id_alumno, id_curso, numero_acta,
-                     fecha_inscripcion, fecha_termino_condicional, anio_inscripcion
-              FROM Inscripciones
-            """)
-            results = cursor.fetchall()
-        except Exception as e:
-            print("Error al obtener inscripciones:", e)
-            results = []
-        finally:
-            cursor.close()
-            conn.close()
-        return results
-    return []
-
-
-
-def insert_student(rut, nombre, apellido, correo, telefono, profesion, direccion, ciudad, comuna, id_empresa=None):
-    """Inserta un nuevo alumno."""
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
             query = """
                 INSERT INTO Alumnos 
-                (rut, nombre, apellido, correo, telefono, profesion, direccion, ciudad, comuna, id_empresa)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (rut, nombre, apellido, correo, telefono, profesion, direccion, comuna, ciudad)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(query, (rut, nombre, apellido, correo, telefono, profesion, direccion, ciudad, comuna, id_empresa))
+            cursor.execute(query, (
+                rut, nombre, apellido, correo, telefono, 
+                profesion, direccion, comuna, ciudad
+            ))
             conn.commit()
         except Exception as e:
             print("Error al insertar alumno:", e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+        return True
+    return False
+
+def update_student(rut, nombre=None, apellido=None, correo=None, 
+                   telefono=None, profesion=None, direccion=None, 
+                   comuna=None, ciudad=None):
+    """
+    Edita (actualiza) los datos de un alumno existente.
+    Rut es la clave primaria y no se modifica.
+    Retorna True si se actualiza correctamente, False en caso de error.
+    """
+    if not validate_alumno_exists(rut):
+        print(f"No se encontró alumno con RUT {rut}")
+        return False
+
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # 1) Obtener datos actuales
+            cursor.execute("SELECT * FROM Alumnos WHERE rut = %s", (rut,))
+            alumno = cursor.fetchone()
+            if not alumno:
+                print(f"Alumno con RUT {rut} no encontrado.")
+                return False
+            
+            # Asumiendo el orden de columnas en la tabla Alumnos:
+            #  alumno[0] => rut
+            #  alumno[1] => nombre
+            #  alumno[2] => apellido
+            #  alumno[3] => correo
+            #  alumno[4] => telefono
+            #  alumno[5] => profesion
+            #  alumno[6] => direccion
+            #  alumno[7] => comuna
+            #  alumno[8] => ciudad
+
+            current_nombre    = alumno[1]
+            current_apellido  = alumno[2]
+            current_correo    = alumno[3]
+            current_telefono  = alumno[4]
+            current_profesion = alumno[5]
+            current_direccion = alumno[6]
+            current_comuna    = alumno[7]
+            current_ciudad    = alumno[8]
+
+            # 2) Determinar nuevos valores (si no llega ninguno, se deja el actual)
+            new_nombre    = nombre if nombre is not None else current_nombre
+            new_apellido  = apellido if apellido is not None else current_apellido
+            new_correo    = correo if correo is not None else current_correo
+            new_telefono  = telefono if telefono is not None else current_telefono
+            new_profesion = profesion if profesion is not None else current_profesion
+            new_direccion = direccion if direccion is not None else current_direccion
+            new_comuna    = comuna if comuna is not None else current_comuna
+            new_ciudad    = ciudad if ciudad is not None else current_ciudad
+
+            # 3) Ejecutar UPDATE
+            update_query = """
+                UPDATE Alumnos
+                SET nombre = %s,
+                    apellido = %s,
+                    correo = %s,
+                    telefono = %s,
+                    profesion = %s,
+                    direccion = %s,
+                    comuna = %s,
+                    ciudad = %s
+                WHERE rut = %s
+            """
+            cursor.execute(update_query, (
+                new_nombre, new_apellido, new_correo, new_telefono,
+                new_profesion, new_direccion, new_comuna, new_ciudad, rut
+            ))
+            conn.commit()
+
+        except Exception as e:
+            print("Error al actualizar datos del alumno:", e)
             return False
         finally:
             cursor.close()
@@ -323,13 +364,45 @@ def fetch_all_students():
         return results
     return []
 
-def fetch_student_by_rut(rut):
-    """Retorna un alumno que coincida con el RUT dado."""
+def fetch_students_by_name_apellido(nombre, apellido):
+    """
+    Retorna lista de alumnos que coincidan con (nombre, apellido).
+    Búsqueda insensible a mayúsculas/minúsculas.
+    """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
-            query = "SELECT * FROM Alumnos WHERE rut = %s"
+            query = """
+                SELECT * FROM Alumnos
+                WHERE LOWER(nombre) LIKE LOWER(%s)
+                  AND LOWER(apellido) LIKE LOWER(%s)
+            """
+            # Convertir los parámetros a minúsculas y agregar % para coincidencia parcial
+            nombre_param = f"%{nombre}%" if nombre else "%"
+            apellido_param = f"%{apellido}%" if apellido else "%"
+            
+            cursor.execute(query, (nombre_param, apellido_param))
+            results = cursor.fetchall()
+        except Exception as e:
+            print("Error al buscar alumno por nombre y apellido:", e)
+            results = []
+        finally:
+            cursor.close()
+            conn.close()
+        return results
+    return []
+
+def fetch_student_by_rut(rut):
+    """
+    Retorna un alumno que coincida con el RUT dado.
+    Búsqueda insensible a mayúsculas/minúsculas.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = "SELECT * FROM Alumnos WHERE LOWER(rut) = LOWER(%s)"
             cursor.execute(query, (rut,))
             result = cursor.fetchone()
         except Exception as e:
@@ -360,6 +433,486 @@ def delete_student_by_rut(rut):
         finally:
             cursor.close()
             conn.close()
+    return False
+#=======================================================================================================
+#           EMPRESAS
+#=======================================================================================================
+def get_empresa_by_name(nombre_empresa):
+    """
+    Busca una empresa por nombre (usando el id como nombre)
+    y retorna su ID.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Convertir a mayúsculas para la búsqueda
+            nombre_empresa = nombre_empresa.upper().strip()
+            cursor.execute(
+                "SELECT id_empresa FROM empresa WHERE id_empresa = %s", 
+                (nombre_empresa,)
+            )
+            result = cursor.fetchone()
+            return result[0] if result else None
+        except Exception as e:
+            print(f"Error al buscar empresa: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    return None
+
+def register_new_empresa(nombre_empresa):
+    """
+    Registra una nueva empresa usando el nombre como id_empresa.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Convertir a mayúsculas para el registro
+            id_empresa = nombre_empresa.upper().strip()
+            
+            # La tabla empresa requiere rut_empresa según el esquema
+            # Generamos un RUT temporal único basado en el ID
+            rut_temporal = f"0-{id_empresa[:8]}"  # Podemos ajustar esto según necesites
+            
+            cursor.execute("""
+                INSERT INTO empresa (
+                    id_empresa,
+                    rut_empresa,
+                    direccion_empresa
+                ) VALUES (%s, %s, NULL)
+            """, (id_empresa, rut_temporal))
+            
+            conn.commit()
+            print(f"Empresa registrada exitosamente con ID: {id_empresa}")
+            return id_empresa
+        except Exception as e:
+            print(f"Error al registrar empresa: {e}")
+            conn.rollback()
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    return None
+
+def get_or_create_empresa(nombre_empresa):
+    """
+    Busca una empresa por nombre (id), si no existe la crea.
+    Retorna el ID de la empresa.
+    """
+    if not nombre_empresa or not nombre_empresa.strip():
+        return None
+        
+    # Primero intentamos encontrar la empresa
+    id_empresa = get_empresa_by_name(nombre_empresa)
+    
+    # Si no existe, la creamos
+    if id_empresa is None:
+        print(f"Empresa {nombre_empresa} no encontrada, creando nueva...")
+        id_empresa = register_new_empresa(nombre_empresa)
+        if id_empresa is not None:
+            print(f"Nueva empresa creada con ID: {id_empresa}")
+        else:
+            print("Error al crear nueva empresa")
+            
+    return id_empresa
+
+# =======================================
+#         INSCRIPCIONES
+# =======================================
+def validate_curso_exists(id_curso):
+    """Valida si un curso existe en la base de datos."""
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = "SELECT COUNT(*) FROM Cursos WHERE id_curso = %s"
+            cursor.execute(query, (id_curso,))
+            result = cursor.fetchone()
+            return result[0] > 0
+        except Exception as e:
+            print("Error al validar curso:", e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def fetch_inscriptions():
+    """
+    Obtiene todas las inscripciones con información detallada.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    i.id_inscripcion as ID,
+                    i.numero_acta as N_Acta,
+                    a.rut as RUT,
+                    CASE 
+                        WHEN a.nombre IS NOT NULL AND a.apellido IS NOT NULL 
+                        THEN CONCAT(a.nombre, ' ', a.apellido)
+                        ELSE a.nombre 
+                    END as Nombre_Completo,
+                    i.id_curso as ID_Curso,
+                    i.fecha_inscripcion as F_Inscripcion,
+                    i.fecha_termino_condicional as F_Termino,
+                    i.anio_inscripcion as Año,
+                    i.metodo_llegada as Metodo,
+                    CASE 
+                        WHEN i.id_empresa IS NOT NULL THEN e.id_empresa 
+                        ELSE 'Particular'
+                    END as Empresa,
+                    i.ordenSence as Codigo_Sence,
+                    i.idfolio as Folio
+                FROM inscripciones i
+                LEFT JOIN alumnos a ON i.id_alumno = a.rut
+                LEFT JOIN empresa e ON i.id_empresa = e.id_empresa
+                ORDER BY i.fecha_inscripcion DESC, i.id_inscripcion DESC
+            """)
+            results = cursor.fetchall()
+            print(f"Resultados obtenidos: {len(results)} inscripciones")
+            return results
+        except Exception as e:
+            print("Error al obtener inscripciones:", e)
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
+
+def format_inscription_data(inscription):
+    """
+    Da formato a los datos de inscripción para mostrarlos en la tabla.
+    """
+    try:
+        fecha_inscripcion = inscription[5] if isinstance(inscription[5], str) else inscription[5].strftime('%Y-%m-%d') if inscription[5] else ''
+        fecha_termino = inscription[6] if isinstance(inscription[6], str) else inscription[6].strftime('%Y-%m-%d') if inscription[6] else ''
+        
+        return {
+            "ID": inscription[0],
+            "N_Acta": inscription[1],
+            "RUT": inscription[2],
+            "Nombre_Completo": inscription[3],
+            "ID_Curso": inscription[4],
+            "F_Inscripcion": fecha_inscripcion,
+            "F_Termino": fecha_termino,
+            "Año": inscription[7],
+            "Metodo": inscription[8],
+            "Empresa": inscription[9],
+            "Codigo_Sence": inscription[10],
+            "Folio": inscription[11]
+        }
+    except Exception as e:
+        print(f"Error al formatear inscripción: {e}")
+        print(f"Datos recibidos: {inscription}")
+        return {}
+
+def fetch_inscription_by_id(id_inscripcion):
+    """
+    Obtiene los datos de una inscripción específica por su ID.
+    Retorna una tupla con los datos o None si no se encuentra.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    i.id_inscripcion,
+                    i.id_alumno,
+                    i.id_curso,
+                    i.fecha_inscripcion,
+                    i.fecha_termino_condicional,
+                    i.anio_inscripcion,
+                    i.metodo_llegada,
+                    i.id_empresa,
+                    i.numero_acta,
+                    i.ordenSence,
+                    i.idfolio
+                FROM inscripciones i 
+                WHERE i.id_inscripcion = %s
+            """, (id_inscripcion,))
+            
+            result = cursor.fetchone()
+            
+            if result:
+                print(f"Inscripción encontrada: {result}")
+                return result
+            else:
+                print(f"No se encontró inscripción con ID {id_inscripcion}")
+                return None
+                
+        except Exception as e:
+            print(f"Error al obtener inscripción: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    return None
+
+def update_inscription(id_inscripcion,
+                    id_alumno=None,
+                    id_curso=None,
+                    fecha_inscripcion=None,
+                    fecha_termino_condicional=None,
+                    anio_inscripcion=None,
+                    metodo_llegada=None,
+                    id_empresa=None,
+                    numero_acta=None,
+                    ordenSence=None,
+                    idfolio=None):
+    """
+    Actualiza los datos de una inscripción existente.
+    Solo modifica los campos que no vengan como None.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # 1) Obtener la inscripción actual
+            cursor.execute("SELECT * FROM Inscripciones WHERE id_inscripcion = %s", (id_inscripcion,))
+            inscripcion = cursor.fetchone()
+            if not inscripcion:
+                print(f"No se encontró inscripcion con ID {id_inscripcion}")
+                return False, "No se encontró la inscripción especificada."
+            
+            # Mapeo de columnas de la tabla Inscripciones:
+            #  inscripcion[0] => id_inscripcion
+            #  inscripcion[1] => id_alumno
+            #  inscripcion[2] => id_curso
+            #  inscripcion[3] => fecha_inscripcion
+            #  inscripcion[4] => fecha_termino_condicional
+            #  inscripcion[5] => anio_inscripcion
+            #  inscripcion[6] => metodo_llegada
+            #  inscripcion[7] => id_empresa
+            #  inscripcion[8] => numero_acta
+            #  inscripcion[9] => ordenSence
+            #  inscripcion[10] => idfolio
+
+            # 2) Obtener valores actuales
+            current_values = {
+                'id_alumno': inscripcion[1],
+                'id_curso': inscripcion[2],
+                'fecha_inscripcion': inscripcion[3],
+                'fecha_termino_condicional': inscripcion[4],
+                'anio_inscripcion': inscripcion[5],
+                'metodo_llegada': inscripcion[6],
+                'id_empresa': inscripcion[7],
+                'numero_acta': inscripcion[8],
+                'ordenSence': inscripcion[9],
+                'idfolio': inscripcion[10]
+            }
+
+            # 3) Determinar nuevos valores
+            new_values = {
+                'id_alumno': id_alumno if id_alumno is not None else current_values['id_alumno'],
+                'id_curso': id_curso if id_curso is not None else current_values['id_curso'],
+                'fecha_inscripcion': fecha_inscripcion if fecha_inscripcion is not None else current_values['fecha_inscripcion'],
+                'fecha_termino_condicional': fecha_termino_condicional if fecha_termino_condicional is not None else current_values['fecha_termino_condicional'],
+                'anio_inscripcion': anio_inscripcion if anio_inscripcion is not None else current_values['anio_inscripcion'],
+                'metodo_llegada': metodo_llegada if metodo_llegada is not None else current_values['metodo_llegada'],
+                'id_empresa': id_empresa if id_empresa is not None else current_values['id_empresa'],
+                'numero_acta': numero_acta if numero_acta is not None else current_values['numero_acta'],
+                'ordenSence': ordenSence if ordenSence is not None else current_values['ordenSence'],
+                'idfolio': idfolio if idfolio is not None else current_values['idfolio']
+            }
+
+            # 4) Ejecutar UPDATE
+            update_query = """
+                UPDATE Inscripciones
+                SET id_alumno = %s,
+                    id_curso = %s,
+                    fecha_inscripcion = %s,
+                    fecha_termino_condicional = %s,
+                    anio_inscripcion = %s,
+                    metodo_llegada = %s,
+                    id_empresa = %s,
+                    numero_acta = %s,
+                    ordenSence = %s,
+                    idfolio = %s
+                WHERE id_inscripcion = %s
+            """
+            cursor.execute(update_query, (
+                new_values['id_alumno'],
+                new_values['id_curso'],
+                new_values['fecha_inscripcion'],
+                new_values['fecha_termino_condicional'],
+                new_values['anio_inscripcion'],
+                new_values['metodo_llegada'],
+                new_values['id_empresa'],
+                new_values['numero_acta'],
+                new_values['ordenSence'],
+                new_values['idfolio'],
+                id_inscripcion
+            ))
+            conn.commit()
+            return True, "Inscripción actualizada exitosamente."
+
+        except Exception as e:
+            print("Error al actualizar inscripción:", e)
+            return False, f"Error al actualizar la inscripción: {str(e)}"
+        finally:
+            cursor.close()
+            conn.close()
+    return False, "Error de conexión con la base de datos."
+
+def validate_alumno_exists(rut):
+    """Verifica si existe un alumno con el RUT especificado."""
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT rut FROM Alumnos WHERE rut = %s", (rut,))
+            return cursor.fetchone() is not None
+        except Exception as e:
+            print("Error al validar alumno:", e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def validate_curso_exists(id_curso):
+    """Verifica si existe un curso con el ID especificado."""
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id_curso FROM Cursos WHERE id_curso = %s", (id_curso,))
+            return cursor.fetchone() is not None
+        except Exception as e:
+            print("Error al validar curso:", e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def delete_inscription(id_inscripcion):
+    """
+    Elimina una inscripción por su ID.
+    
+    Args:
+        id_inscripcion: El ID de la inscripción a eliminar
+        
+    Returns:
+        tuple: (bool, str) - (éxito, mensaje)
+    """
+    conn = connect_db()
+    if not conn:
+        return False, "Error de conexión con la base de datos."
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Primero verificamos si la inscripción existe
+        cursor.execute("SELECT id_inscripcion FROM inscripciones WHERE id_inscripcion = %s", (id_inscripcion,))
+        if not cursor.fetchone():
+            return False, "La inscripción especificada no existe."
+            
+        # Si existe, procedemos a eliminarla
+        cursor.execute("DELETE FROM inscripciones WHERE id_inscripcion = %s", (id_inscripcion,))
+        conn.commit()
+        
+        return True, "Inscripción eliminada correctamente."
+        
+    except Exception as e:
+        conn.rollback()
+        return False, f"Error al eliminar la inscripción: {str(e)}"
+    finally:
+        cursor.close()
+        conn.close()
+
+def validate_duplicate_enrollment(id_alumno, id_curso, anio_inscripcion):
+    """
+    Verifica si ya existe una inscripción activa para el mismo alumno en el mismo curso y año.
+    Retorna True si ya existe una inscripción, False si no existe.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id_inscripcion 
+                FROM Inscripciones 
+                WHERE id_alumno = %s 
+                AND id_curso = %s 
+                AND anio_inscripcion = %s
+                AND (fecha_termino_condicional IS NULL 
+                     OR fecha_termino_condicional >= CURRENT_DATE)
+            """, (id_alumno, id_curso, anio_inscripcion))
+            
+            return cursor.fetchone() is not None
+        except Exception as e:
+            print("Error al validar duplicados:", e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def enroll_student(id_alumno, id_curso, numero_acta, fecha_inscripcion,
+                  fecha_termino_condicional, anio_inscripcion, metodo_llegada,
+                  nombre_empresa=None, ordenSence=None, idfolio=None):
+    """
+    Registra una nueva inscripción en la base de datos.
+    """
+    # Validaciones básicas
+    if not validate_alumno_exists(id_alumno):
+        return False, "El alumno no existe en el sistema."
+    
+    if not validate_curso_exists(id_curso):
+        return False, "El curso especificado no existe."
+        
+    if validate_duplicate_enrollment(id_alumno, id_curso, anio_inscripcion):
+        return False, "El alumno ya está inscrito en este curso para el año especificado."
+
+    # Procesar empresa
+    id_empresa = None
+    if nombre_empresa and metodo_llegada == "EMPRESA":
+        print(f"Procesando empresa: {nombre_empresa}")
+        id_empresa = get_or_create_empresa(nombre_empresa)
+        if id_empresa is None:
+            return False, "Error al procesar la empresa."
+    
+    conn = connect_db()
+    if not conn:
+        return False, "Error de conexión con la base de datos."
+    
+    try:
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO inscripciones (
+                id_alumno, id_curso, numero_acta,
+                fecha_inscripcion, fecha_termino_condicional,
+                anio_inscripcion, metodo_llegada, id_empresa,
+                ordenSence, idfolio
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            )
+        """
+        values = (
+            id_alumno, id_curso, numero_acta,
+            fecha_inscripcion, fecha_termino_condicional,
+            anio_inscripcion, metodo_llegada, id_empresa,
+            ordenSence, idfolio
+        )
+        
+        cursor.execute(query, values)
+        conn.commit()
+        return True, "Inscripción realizada exitosamente."
+        
+    except Exception as e:
+        conn.rollback()
+        return False, f"Error al realizar la inscripción: {str(e)}"
+    finally:
+        cursor.close()
+        conn.close()
 
 def fetch_courses_by_student_rut(rut):
     """Obtiene los cursos realizados por un alumno y las fechas de inscripción."""
@@ -404,7 +957,8 @@ def fetch_payments():
         return results
     return []
 
-def insert_payment(id_inscripcion, tipo_pago, modalidad_pago, num_documento, cuotas_totales, valor, estado, cuotas_pagadas):
+def insert_payment(id_inscripcion, tipo_pago, modalidad_pago, num_documento, 
+                   cuotas_totales, valor, estado, cuotas_pagadas):
     """Inserta un nuevo pago."""
     conn = connect_db()
     if conn:
@@ -412,10 +966,14 @@ def insert_payment(id_inscripcion, tipo_pago, modalidad_pago, num_documento, cuo
             cursor = conn.cursor()
             query = """
                 INSERT INTO Pagos 
-                (id_inscripcion, tipo_pago, modalidad_pago, num_documento, cuotas_totales, valor, estado, cuotas_pagadas)
+                (id_inscripcion, tipo_pago, modalidad_pago, num_documento,
+                 cuotas_totales, valor, estado, cuotas_pagadas)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(query, (id_inscripcion, tipo_pago, modalidad_pago, num_documento, cuotas_totales, valor, estado, cuotas_pagadas))
+            cursor.execute(query, (
+                id_inscripcion, tipo_pago, modalidad_pago, num_documento, 
+                cuotas_totales, valor, estado, cuotas_pagadas
+            ))
             conn.commit()
         except Exception as e:
             print("Error al insertar pago:", e)
@@ -495,6 +1053,7 @@ def fetch_user_by_credentials(username, password):
     conn = connect_db()
     if conn:
         try:
+            # dictionary=True para obtener columnas como dict
             cursor = conn.cursor(dictionary=True)
             query = "SELECT * FROM Usuarios WHERE username = %s AND password = %s"
             cursor.execute(query, (username, password))
@@ -507,4 +1066,3 @@ def fetch_user_by_credentials(username, password):
             cursor.close()
             conn.close()
     return None
-
