@@ -5,6 +5,9 @@ from PIL import Image, ImageTk
 from datetime import datetime
 from database.db_config import connect_db
 from itertools import cycle  # <<--- Para el validador avanzado de RUT
+from .excel_export import ExcelExporter
+from tkinterdnd2 import DND_FILES, TkinterDnD
+import base64
 
 # ============================
 #   Validador avanzado de RUT
@@ -21,7 +24,7 @@ def validar_rut(rut):
     dv = rut[-1:]
 
     # Validar que sea un número en rango posible
-    if not rut_aux.isdigit() or not (1_000_000 <= int(rut_aux) <= 25_000_000):
+    if not rut_aux.isdigit() or not (1_000_000 <= int(rut_aux) <= 90_000_000):
         return False
 
     revertido = map(int, reversed(rut_aux))
@@ -41,61 +44,73 @@ def validar_rut(rut):
 # --------------------------------------------------------------------
 #   IMPORTAR FUNCIONES DE LA BASE DE DATOS (queries.py o similares)
 # --------------------------------------------------------------------
-# from database.db_config import connect_db  # Si lo requieres para algunas funciones directas
 
 from database.queries import (
-    fetch_courses,
-    insert_course,
-    update_course,
-    delete_course_by_id,
-    fetch_courses_by_student_rut,
-    fetch_all_students,
-    insert_student,
-    fetch_student_by_rut,
-    delete_student_by_rut,
-    fetch_payments,
-    insert_payment,
-    fetch_payments_by_inscription,
-    insert_invoice,
-    fetch_invoices,
-    fetch_user_by_credentials,
-    enroll_student,
-    fetch_inscriptions,
-    update_inscription,
-    update_student,
-    get_or_create_empresa,
-    validate_alumno_exists,
-    validate_curso_exists,
-    get_empresa_by_name,
-    register_new_empresa,
-    get_or_create_empresa,
-    validate_duplicate_enrollment,
-    fetch_students_by_name_apellido,
-    format_inscription_data,
-    delete_inscription,
-    fetch_inscription_by_id
+    fetch_courses,insert_course,update_course,delete_course_by_id,                       #Cursos
+    validate_curso_exists,get_course_duration,add_business_days,
+
+
+    fetch_courses_by_student_rut,fetch_all_students,insert_student,fetch_student_by_rut, #Alumnos
+    delete_student_by_rut,fetch_students_by_name_apellido,validate_alumno_exists,
+
+    fetch_payments,insert_payment,fetch_payments_by_inscription,                         #Pagos
+
+    insert_invoice,fetch_invoices,                                                       #Facturas
+    
+    fetch_user_by_credentials,enroll_student,fetch_inscriptions,                         #Inscripciones
+    update_inscription,update_student,validate_duplicate_enrollment,
+    format_inscription_data,delete_inscription,fetch_inscription_by_id,
+    get_course_duration, add_business_days,
+
+    get_empresa_by_name,get_or_create_empresa,register_new_empresa,fetch_all_empresas,   #Empresas
+    update_empresa,insert_empresa,fetch_contactos_by_empresa,fetch_empresa_by_rut,
+    insert_contacto_empresa,update_contacto_empresa,delete_contacto_empresa
+                     
 )
 
-class App:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Gestión SPS")
-        self.root.state("zoomed")
 
+
+class App:
+    def __init__(self, root=None):
+        # Aseguramos usar TkinterDnD.Tk
+        if root is None or not isinstance(root, TkinterDnD.Tk):
+            self.root = TkinterDnD.Tk()
+        else:
+            self.root = root
+
+        # 1. Ocultamos la ventana inmediatamente
+        self.root.withdraw()
+        
+        self.root.title("Gestión SPS")
+
+        # 2. Maximizamos la ventana (pero sigue oculta)
+        self.root.state('zoomed')
+        self.root.resizable(True, True)
+
+        # Configuración de estilos, etc.
         self.setup_styles()
 
+        # 3. Cargamos los íconos mientras sigue oculta
         try:
-            self.root.iconbitmap('assets/logo1.ico')
-            self.root.call('wm', 'iconphoto', root._w, tk.PhotoImage(file='assets/logo1.ico'))
+            # Usar solo iconbitmap con tu .ico
+            self.root.iconbitmap('assets/logo2.ico')
+            # Si tu .ico es suficiente, comenta la siguiente línea:
+            # self.root.call('wm', 'iconphoto', self.root._w, tk.PhotoImage(file='assets/logo2.ico'))
         except Exception as e:
             print(f"Error al cargar íconos: {e}")
 
+        # Instanciamos lo que necesitemos (ej. ExcelExporter)
+        self.excel_exporter = ExcelExporter()
+
         self.main_frame = None
-        
-        # Label único para el título de la tabla
         self.title_label = None
 
+        # 4. Ahora que la ventana está configurada, la mostramos.
+        self.root.deiconify()
+
+        # 5. Mostramos directamente el LoginFrame (o la interfaz principal)
         self.show_login_frame()
+
 
     def setup_styles(self):
         """
@@ -117,7 +132,6 @@ class App:
         # ========== Estilos para la interfaz principal ==========
         style.configure("Main.TFrame", background="#0f075e")
 
-        # Estilo para la tabla (Treeview) y sus encabezados
         style.configure("Treeview",
                         background="#ffffff",
                         foreground="black",
@@ -132,12 +146,10 @@ class App:
                         relief="flat",
                         font=('Segoe UI', 10, 'bold'))
 
-        # Estilo para las filas seleccionadas
         style.map('Treeview',
                   background=[('selected', '#0078D7')],
                   foreground=[('selected', 'white')])
 
-        # Estilo para botones genéricos
         style.configure("TButton",
                         padding=6,
                         relief="flat",
@@ -145,183 +157,120 @@ class App:
                         foreground="black",
                         font=('Segoe UI', 10))
 
-        # Estilo para etiquetas (Labels) genéricas
         style.configure("TLabel",
                         font=('Segoe UI', 10),
                         background="#f0f0f0")
-        
-        # En setup_styles, agregar:
+
         style.configure("Title.TLabel",
-                font=('Segoe UI', 14, 'bold'),
-                background="#0f075e",  # Mantener consistente con el tema
-                foreground="white")    # Texto blanco para contraste
+                        font=('Segoe UI', 14, 'bold'),
+                        background="#0f075e",
+                        foreground="white")
+
+        style.configure('Action.TButton',
+                        font=('Segoe UI', 10),
+                        padding=5,
+                        background='#00239c',
+                        foreground='white')
+
+        style.configure('Secondary.TButton',
+                        font=('Segoe UI', 10),
+                        padding=5)
 
     def show_login_frame(self):
-            """
-            Ventana de LOGIN con animaciones optimizadas.
-            """
-            # Frame principal
-            login_frame = ttk.Frame(self.root, style="Login.TFrame")
-            login_frame.pack(fill=tk.BOTH, expand=True)
+        """
+        Muestra el frame de Login usando LoginFrame.
+        
+        """
 
-            # Contenedor principal
-            main_container = tk.Frame(login_frame, bg="#0f075e", width=400, height=500)
-            main_container.pack(expand=True)
-            main_container.pack_propagate(False)
+        if hasattr(self, 'main_frame') and self.main_frame:
+            self.main_frame.destroy()
 
-            # Solo fade-in inicial
-            def fade_in(widget, current_alpha=0):
-                if current_alpha < 1:
-                    current_alpha += 0.05
-                    widget.attributes('-alpha', current_alpha)
-                    self.root.after(30, lambda: fade_in(widget, current_alpha))
+        # Importa tu LoginFrame (el que usa escalado en grupo)
+        try:
+            from gui.gui import LoginFrame
+        except ImportError:
+            from gui import LoginFrame
 
-            self.root.attributes('-alpha', 0)
-            fade_in(self.root)
+        def login_callback(username, password):
+            """Valida credenciales contra la DB."""
+            if not username or not password:
+                messagebox.showwarning("Error", "Complete todos los campos")
+                return
 
-            # Logo con animación suave
-            try:
-                from PIL import Image, ImageTk
-                logo = Image.open('assets/logomarco.jpg')
-                logo_tk = ImageTk.PhotoImage(logo)
-                logo_label = tk.Label(main_container, image=logo_tk, bg="#0f075e")
-                logo_label.image = logo_tk
-                
-                # Animación del logo
-                logo_label.place(relx=0.5, rely=-0.5, anchor="center")
-                def animate_logo(pos=0):
-                    if pos < 0.2:
-                        pos += 0.02
-                        logo_label.place(relx=0.5, rely=pos, anchor="center")
-                        self.root.after(30, lambda: animate_logo(pos))
-                animate_logo()
-                
-            except Exception as e:
-                print(f"Error al cargar logo: {e}")
+            user = fetch_user_by_credentials(username, password)
+            if user:
+                # Si las credenciales son correctas
+                self.login_frame.hide()
+                self.setup_main_interface()
+            else:
+                messagebox.showerror("Error", "Credenciales inválidas revice la escritura.")
 
-            # Frame para campos
-            fields_frame = tk.Frame(main_container, bg="#0f075e", width=300)
-            fields_frame.pack(pady=(220, 20))
-
-            # Campos de entrada mejorados con efectos
-            def create_entry(parent, placeholder, show=None):
-                frame = tk.Frame(parent, bg="#0f075e")
-                frame.pack(pady=15, padx=20, fill='x')
-                
-                label = tk.Label(
-                    frame,
-                    text=placeholder,
-                    bg="#0f075e",
-                    fg="white",
-                    font=('Helvetica', 12)
-                )
-                label.pack(anchor='w')
-                
-                entry = tk.Entry(
-                    frame,
-                    font=('Helvetica', 12),
-                    bg="#1a237e",
-                    fg="white",
-                    insertbackground='white',
-                    relief='flat',
-                    show=show
-                )
-                entry.pack(fill='x', pady=(5, 0))
-                
-                # Línea decorativa con efecto
-                line = tk.Frame(frame, height=2, bg='white')
-                line.pack(fill='x', pady=(2, 0))
-                
-                # Efectos al focus
-                def on_focus_in(event):
-                    line.configure(height=3)
-                    entry.configure(bg="#283593")
-                    
-                def on_focus_out(event):
-                    line.configure(height=2)
-                    entry.configure(bg="#1a237e")
-                    
-                entry.bind("<FocusIn>", on_focus_in)
-                entry.bind("<FocusOut>", on_focus_out)
-                
-                return entry
-
-            # Crear campos
-            user_entry = create_entry(fields_frame, "Usuario")
-            pass_entry = create_entry(fields_frame, "Contraseña", show="*")
-
-            def validate_login():
-                username = user_entry.get().strip()
-                password = pass_entry.get().strip()
-
-                if not username or not password:
-                    messagebox.showwarning("Error", "Complete todos los campos")
-                    return
-
-                user = fetch_user_by_credentials(username, password)
-                if user:
-                    login_frame.destroy()
-                    self.setup_main_interface()
-                else:
-                    messagebox.showerror("Error", "Credenciales inválidas")
-
-            # Botón de login mejorado
-            button_frame = tk.Frame(main_container, bg="#0f075e")
-            button_frame.pack(pady=20)
-
-            login_button = tk.Button(
-                button_frame,
-                text="Iniciar Sesión",
-                font=('Helvetica', 12, 'bold'),
-                bg="#1a237e",
-                fg="white",
-                activebackground="#283593",
-                activeforeground="white",
-                relief='flat',
-                cursor='hand2',
-                width=20,
-                command=validate_login
-            )
-            
-            def on_enter(e):
-                e.widget['background'] = '#283593'
-                
-            def on_leave(e):
-                e.widget['background'] = '#1a237e'
-                
-            login_button.bind("<Enter>", on_enter)
-            login_button.bind("<Leave>", on_leave)
-            login_button.pack(pady=10)
-            
-            # Bind Enter key para login
-            def on_return(event):
-                validate_login()
-                
-            self.root.bind('<Return>', on_return)
+        self.login_frame = LoginFrame(self.root, login_callback)
+        self.root.bind('<Return>', lambda e: self.login_frame.handle_login())
+        self.login_frame.show()
 
     def setup_main_interface(self):
         """
-        Ventana principal después de iniciar sesión.
+        Configura la ventana principal después de iniciar sesión.
         """
-        self.main_frame = ttk.Frame(self.root, style="Main.TFrame")
+
+
+        # Frame principal
+        self.main_frame = ttk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Inicializar title_label como None
-        self.title_label = None
+        # Header con fondo y título
+        self.header_frame = ttk.Frame(self.main_frame, style="Main.TFrame")
+        self.header_frame.pack(fill=tk.X)
 
-        # Para el error del logo ANTIALIAS
-        try:
-            img = Image.open("assets/logomarco.jpg")
-            # Usar LANCZOS en lugar de ANTIALIAS
-            resized_image = img.resize((140, 90), Image.LANCZOS)
-        except Exception as e:
-            print(f"Error al cargar logo: {e}")
+        title_container = ttk.Frame(self.header_frame, style="Main.TFrame")
+        title_container.pack(fill=tk.X, padx=10, pady=5)
 
+        title_container.grid_columnconfigure(1, weight=1)
+
+        # Label de título
+        self.title_label = ttk.Label(
+            title_container,
+            text="",
+            style="Title.TLabel",
+            anchor="center"
+        )
+        self.title_label.grid(row=0, column=1, sticky="ew")
+
+        # Botón de exportación con ícono
+        self.export_button = tk.Button(
+            title_container,
+            image=self.excel_exporter.get_excel_icon(),  # Se usa la instancia ya creada
+            bg="#0f075e",
+            activebackground="#1a237e",
+            bd=0,
+            cursor="hand2",
+            command=self._export_data
+        )
+        self.export_button.grid(row=0, column=2, padx=(10, 5))
+
+        self._setup_button_hover_effects()
         self._setup_menu()
         self._setup_tree()
 
-        # Al iniciar, mostrar inscripciones directamente
+        # Mostrar inscripciones al inicio
         self.show_inscriptions()
+
+    def _setup_button_hover_effects(self):
+        """Configura los efectos hover para el botón de exportación"""
+        def on_enter(e):
+            self.export_button['background'] = '#1a237e'
+            
+        def on_leave(e):
+            self.export_button['background'] = '#0f075e'
+        
+        self.export_button.bind("<Enter>", on_enter)
+        self.export_button.bind("<Leave>", on_leave)
+
+    def _export_data(self):
+        """Maneja la exportación de datos a Excel"""
+        title = self.title_label.cget('text')
+        self.excel_exporter.export_to_excel(self.tree, title)
 
     def _setup_menu(self):
         menubar = tk.Menu(self.root)
@@ -351,6 +300,7 @@ class App:
         inscripciones_menu.add_command(label="Matricular Alumno", command=self.enroll_student_window)
         inscripciones_menu.add_command(label="Editar Inscripción", command=self.update_inscription_window) # <<--- Añadir función
         inscripciones_menu.add_command(label="Eliminar Inscripción", command=self.delete_inscription_window)
+        inscripciones_menu.add_command(label="Inscripcion Masiva", command=self.show_bulk_enrollment)
         menubar.add_cascade(label="Inscripciones", menu=inscripciones_menu)
 
         # Menú Pagos
@@ -375,10 +325,22 @@ class App:
         cotizaciones_menu = tk.Menu(menubar, tearoff=0)
         # menubar.add_cascade(label="Cotizaciones", menu=cotizaciones_menu)
 
+        # Menú empresas
+        empresas_menu = tk.Menu(menubar, tearoff=0)
+        empresas_menu.add_command(label="Ver Empresas", command=self.show_empresas)
+        empresas_menu.add_command(label="Añadir y Editar Empresa", command=self.add_edit_empresa_window)
+        empresas_menu.add_command(label="Gestionar Contactos", command=self.manage_contacts_window)
+        menubar.add_cascade(label="Empresas", menu=empresas_menu)
+        
     def _setup_tree(self):
+        """
+        Configura el treeview para mostrar los datos.
+        """
+        # Frame contenedor del tree (directamente bajo main_frame)
         tree_frame = ttk.Frame(self.main_frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
+        # Configurar el Treeview
         self.tree = ttk.Treeview(tree_frame, show="headings", selectmode="browse")
 
         # Scrollbars
@@ -386,33 +348,27 @@ class App:
         hscroll = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
         self.tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
 
+        # Grid layout
         self.tree.grid(row=0, column=0, sticky="nsew")
         vscroll.grid(row=0, column=1, sticky="ns")
         hscroll.grid(row=1, column=0, sticky="ew")
 
+        # Configurar pesos de grid
         tree_frame.grid_columnconfigure(0, weight=1)
         tree_frame.grid_rowconfigure(0, weight=1)
 
-        # Fila alternada
+        # Configurar tags para filas alternadas
         self.tree.tag_configure('oddrow', background='#f5f5f5')
         self.tree.tag_configure('evenrow', background='#ffffff')
 
-        # Copiar contenido con doble clic
-        self.tree.bind("<Double-1>", self._copy_cell_to_clipboard)
-
     def _update_title_label(self, text):
         """
-        Actualiza (o crea) un único Label para el título, evitando que se dupliquen.
+        Actualiza el texto del título.
+        
+        Args:
+            text (str): El texto a mostrar en el título
         """
-        if self.title_label is None:
-            self.title_label = ttk.Label(
-                self.main_frame,
-                text=text,
-                font=('Segoe UI', 14, 'bold'),
-                background="#f0f0f0"
-            )
-            self.title_label.pack(pady=(10,5), before=self.tree.master)
-        else:
+        if self.title_label:
             self.title_label.config(text=text)
 
     def _copy_cell_to_clipboard(self, event):
@@ -530,117 +486,84 @@ class App:
             traceback.print_exc()
 
     def enroll_student_window(self):
-            enroll_window = tk.Toplevel(self.root)
-            enroll_window.title("Matricular Alumno")
-            enroll_window.configure(bg="#f0f5ff")
-            enroll_window.grab_set()
-            enroll_window.focus_force()
+        enroll_window = tk.Toplevel(self.root)
+        enroll_window.title("Matricular Alumno")
+        enroll_window.configure(bg="#f0f5ff")
+        enroll_window.grab_set()
+        enroll_window.focus_force()
 
-            # Configuración de la ventana
-            width, height = 450, 520
-            sw = enroll_window.winfo_screenwidth()
-            sh = enroll_window.winfo_screenheight()
-            x = (sw // 2) - (width // 2)
-            y = (sh // 2) - (height // 2)
-            enroll_window.geometry(f"{width}x{height}+{x}+{y}")
+        # Configuración de la ventana
+        width, height = 450, 600  # Aumentado el height para los nuevos campos
+        sw = enroll_window.winfo_screenwidth()
+        sh = enroll_window.winfo_screenheight()
+        x = (sw // 2) - (width // 2)
+        y = (sh // 2) - (height // 2)
+        enroll_window.geometry(f"{width}x{height}+{x}+{y}")
 
-            try:
-                enroll_window.iconbitmap('assets/logo1.ico')
-            except Exception as e:
-                print(f"Error al cargar el ícono: {e}")
+        try:
+            enroll_window.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar el ícono: {e}")
 
-            # Frame principal
-            main_frame = tk.Frame(enroll_window, bg="#f0f5ff", padx=20, pady=20)
-            main_frame.pack(fill='both', expand=True)
+        # Frame principal
+        main_frame = tk.Frame(enroll_window, bg="#f0f5ff", padx=20, pady=20)
+        main_frame.pack(fill='both', expand=True)
 
-            # Título
-            title_label = tk.Label(
-                main_frame,
-                text="Matricular Alumno",
-                font=("Helvetica", 16, "bold"),
-                bg="#f0f5ff",
-                fg="#022e86"
-            )
-            title_label.pack(pady=(0, 20))
+        # Título
+        title_label = tk.Label(
+            main_frame,
+            text="Matricular Alumno",
+            font=("Helvetica", 16, "bold"),
+            bg="#f0f5ff",
+            fg="#022e86"
+        )
+        title_label.pack(pady=(0, 20))
 
-            def create_label_entry(parent, label_text, validate_cmd=None):
-                frame = tk.Frame(parent, bg="#f0f5ff")
-                frame.pack(fill='x', pady=5)
-                
-                label = tk.Label(
-                    frame,
-                    text=label_text,
-                    bg="#f0f5ff",
-                    fg="#022e86",
-                    font=("Helvetica", 10),
-                    width=25,
-                    anchor='w'
-                )
-                label.pack(side=tk.LEFT, padx=(0, 10))
-                
-                entry = tk.Entry(
-                    frame,
-                    font=("Helvetica", 10),
-                    relief="solid",
-                    bd=1,
-                    width=25
-                )
-                if validate_cmd:
-                    entry.config(validate='focusout', validatecommand=validate_cmd)
-                entry.pack(side=tk.LEFT, fill='x', expand=True)
-                return entry
-
-            def validate_rut_entry():
-                rut = rut_entry.get().strip()
-                if not validar_rut(rut):
-                    messagebox.showerror("Error", "RUT inválido", parent=enroll_window)
-                    rut_entry.focus()
-                    return False
-                return True
-
-            def validate_curso_entry():
-                curso_id = id_curso_entry.get().strip()
-                if not validate_curso_exists(curso_id):
-                    messagebox.showerror("Error", "El curso no existe", parent=enroll_window)
-                    id_curso_entry.focus()
-                    return False
-                return True
-
-            def validate_fecha(fecha_str):
-                try:
-                    if fecha_str:
-                        datetime.strptime(fecha_str, '%Y-%m-%d')
-                    return True
-                except ValueError:
-                    return False
-
-            # Campos básicos con validación
-            acta_entry = create_label_entry(main_frame, "N° Acta:")
-            rut_entry = create_label_entry(main_frame, "RUT Alumno:")
-            rut_entry.bind('<FocusOut>', lambda e: validate_rut_entry())
+        def create_label_entry(parent, label_text, validate_cmd=None):
+            frame = tk.Frame(parent, bg="#f0f5ff")
+            frame.pack(fill='x', pady=5)
             
-            id_curso_entry = create_label_entry(main_frame, "ID Curso:")
-            id_curso_entry.bind('<FocusOut>', lambda e: validate_curso_entry())
-            
-            # Fecha de inscripción automática
-            fecha_frame = tk.Frame(main_frame, bg="#f0f5ff")
-            fecha_frame.pack(fill='x', pady=5)
-            
-            fecha_label = tk.Label(
-                fecha_frame,
-                text="Fecha Inscripción (YYYY-MM-DD):",
+            label = tk.Label(
+                frame,
+                text=label_text,
                 bg="#f0f5ff",
                 fg="#022e86",
                 font=("Helvetica", 10),
                 width=25,
                 anchor='w'
             )
-            fecha_label.pack(side=tk.LEFT, padx=(0, 10))
+            label.pack(side=tk.LEFT, padx=(0, 10))
             
-            fecha_actual = datetime.now().strftime('%Y-%m-%d')
-            fecha_value = tk.Label(
-                fecha_frame,
-                text=fecha_actual,
+            entry = tk.Entry(
+                frame,
+                font=("Helvetica", 10),
+                relief="solid",
+                bd=1,
+                width=25
+            )
+            if validate_cmd:
+                entry.config(validate='focusout', validatecommand=validate_cmd)
+            entry.pack(side=tk.LEFT, fill='x', expand=True)
+            return entry
+
+        def create_label_display(parent, label_text, initial_value=""):
+            frame = tk.Frame(parent, bg="#f0f5ff")
+            frame.pack(fill='x', pady=5)
+            
+            label = tk.Label(
+                frame,
+                text=label_text,
+                bg="#f0f5ff",
+                fg="#022e86",
+                font=("Helvetica", 10),
+                width=25,
+                anchor='w'
+            )
+            label.pack(side=tk.LEFT, padx=(0, 10))
+            
+            display_label = tk.Label(
+                frame,
+                text=initial_value,
                 bg="white",
                 font=("Helvetica", 10),
                 relief="solid",
@@ -648,244 +571,281 @@ class App:
                 width=25,
                 anchor='w'
             )
-            fecha_value.pack(side=tk.LEFT, fill='x', expand=True)
-            
-            fecha_termino_entry = create_label_entry(main_frame, "Fecha Término (YYYY-MM-DD):")
-            fecha_termino_entry.bind('<FocusOut>', lambda e: validate_fecha_termino())
-            
-            anio_entry = create_label_entry(main_frame, "Año Inscripción (YYYY):")
-            anio_entry.insert(0, datetime.now().strftime('%Y'))
+            display_label.pack(side=tk.LEFT, fill='x', expand=True)
+            return display_label
 
-            def validate_fecha_termino():
-                fecha_term = fecha_termino_entry.get().strip()
-                if fecha_term and not validate_fecha(fecha_term):
-                    messagebox.showerror(
-                        "Error",
-                        "Formato de fecha inválido. Use YYYY-MM-DD",
-                        parent=enroll_window
-                    )
-                    fecha_termino_entry.focus()
-                    return False
-                
-                if fecha_term:
-                    fecha_term_date = datetime.strptime(fecha_term, '%Y-%m-%d').date()
-                    fecha_insc_date = datetime.strptime(fecha_actual, '%Y-%m-%d').date()
+        # Campos básicos con validación
+        acta_entry = create_label_entry(main_frame, "N° Acta:")
+        rut_entry = create_label_entry(main_frame, "RUT Alumno:")
+        
+        # Campo ID Curso
+        id_curso_entry = create_label_entry(main_frame, "ID Curso:")
+
+        # Fecha de inscripción (no editable)
+        fecha_actual = datetime.now().strftime('%Y-%m-%d')
+        fecha_inscripcion_label = create_label_display(main_frame, "Fecha Inscripción:", fecha_actual)
+
+        # Label para nombre del curso
+        nombre_curso_label = create_label_display(main_frame, "Nombre del Curso:")
+        
+        # Label para duración
+        duracion_label = create_label_display(main_frame, "Duración (días):")
+
+        # Label para fecha término
+        fecha_termino_label = create_label_display(main_frame, "Fecha Término:")
+        
+        # Año de inscripción
+        anio_entry = create_label_entry(main_frame, "Año Inscripción (YYYY):")
+        anio_entry.insert(0, datetime.now().strftime('%Y'))
+
+        def validate_rut_entry():
+            rut = rut_entry.get().strip()
+            if not validar_rut(rut):
+                messagebox.showerror("Error", "RUT inválido", parent=enroll_window)
+                rut_entry.focus()
+                return False
+            return True
+
+        def update_course_info(event=None):
+            curso_id = id_curso_entry.get().strip()
+            # Limpiar campos si está vacío
+            if not curso_id:
+                nombre_curso_label.config(text="")
+                fecha_termino_label.config(text="")
+                duracion_label.config(text="")
+                return
+
+            conn = connect_db()
+            if conn:
+                try:
+                    cursor = conn.cursor()
+                    # Obtener información del curso
+                    cursor.execute("""
+                        SELECT nombre_curso, duracionDias 
+                        FROM Cursos 
+                        WHERE id_curso = %s
+                    """, (curso_id,))
+                    result = cursor.fetchone()
                     
-                    if fecha_term_date < fecha_insc_date:
+                    if result:
+                        nombre_curso, duracion_dias = result
+                        # Actualizar nombre del curso
+                        nombre_curso_label.config(text=nombre_curso)
+                        # Mostrar duración
+                        duracion_label.config(text=str(duracion_dias))
+                        
+                        # Calcular fecha de término
+                        fecha_inscripcion = datetime.strptime(fecha_actual, '%Y-%m-%d').date()
+                        fecha_termino = add_business_days(fecha_inscripcion, duracion_dias)
+                        fecha_termino_label.config(text=fecha_termino.strftime('%Y-%m-%d'))
+                    else:
+                        # Si no se encuentra el curso, limpiar campos
+                        nombre_curso_label.config(text="")
+                        fecha_termino_label.config(text="")
+                        duracion_label.config(text="")
+                finally:
+                    conn.close()
+
+        def validate_curso_entry():
+            curso_id = id_curso_entry.get().strip()
+            if not validate_curso_exists(curso_id):
+                messagebox.showerror("Error", "El curso no existe", parent=enroll_window)
+                id_curso_entry.focus()
+                return False
+            update_course_info()
+            return True
+
+        # Bindings para los campos
+        rut_entry.bind('<FocusOut>', lambda e: validate_rut_entry())
+        id_curso_entry.bind('<KeyRelease>', update_course_info)
+        id_curso_entry.bind('<FocusOut>', lambda e: validate_curso_entry())
+
+        # Frame para método de llegada
+        metodo_frame = tk.LabelFrame(
+            main_frame,
+            text="Método de Llegada",
+            bg="#f0f5ff",
+            fg="#022e86",
+            font=("Helvetica", 10)
+        )
+        metodo_frame.pack(fill='x', pady=10)
+
+        # Variable para método de llegada
+        metodo_var = tk.StringVar(value="PARTICULAR")
+
+        # Frame para radiobuttons
+        radio_frame = tk.Frame(metodo_frame, bg="#f0f5ff")
+        radio_frame.pack(pady=5)
+
+        tk.Radiobutton(
+            radio_frame,
+            text="Particular",
+            variable=metodo_var,
+            value="PARTICULAR",
+            bg="#f0f5ff",
+            fg="#022e86",
+            font=("Helvetica", 10),
+            command=lambda: toggle_empresa_fields(False)
+        ).pack(side=tk.LEFT, padx=40)
+
+        tk.Radiobutton(
+            radio_frame,
+            text="Empresa",
+            variable=metodo_var,
+            value="EMPRESA",
+            bg="#f0f5ff",
+            fg="#022e86",
+            font=("Helvetica", 10),
+            command=lambda: toggle_empresa_fields(True)
+        ).pack(side=tk.LEFT, padx=40)
+
+        # Frame para campos de empresa
+        empresa_frame = tk.Frame(main_frame, bg="#f0f5ff")
+        empresa_frame.pack(fill='x')
+
+        nombre_empresa_entry = create_label_entry(empresa_frame, "Nombre de Empresa:")
+        orden_sence_entry = create_label_entry(empresa_frame, "Orden SENCE:")
+        id_folio_entry = create_label_entry(empresa_frame, "ID Folio:")
+        empresa_frame.pack_forget()
+
+        def toggle_empresa_fields(show):
+            if show:
+                empresa_frame.pack(fill='x', pady=5)
+            else:
+                empresa_frame.pack_forget()
+                nombre_empresa_entry.delete(0, tk.END)
+                orden_sence_entry.delete(0, tk.END)
+                id_folio_entry.delete(0, tk.END)
+
+        def validate_enrollment_data():
+            # Validar campos requeridos
+            if not all([
+                acta_entry.get().strip(),
+                rut_entry.get().strip(),
+                id_curso_entry.get().strip(),
+                anio_entry.get().strip()
+            ]):
+                messagebox.showwarning(
+                    "Campos vacíos",
+                    "Complete todos los campos requeridos.",
+                    parent=enroll_window
+                )
+                return False
+
+            # Validar RUT
+            if not validate_rut_entry():
+                return False
+
+            # Validar curso
+            if not validate_curso_exists(id_curso_entry.get().strip()):
+                return False
+
+            # Validar año
+            try:
+                anio = int(anio_entry.get().strip())
+                if anio < 2000 or anio > 2100:  # Rango razonable
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror(
+                    "Error",
+                    "Año de inscripción inválido",
+                    parent=enroll_window
+                )
+                return False
+
+            return True
+
+        def save_enrollment():
+            if not validate_enrollment_data():
+                return
+
+            # Obtener datos básicos
+            numero_acta = acta_entry.get().strip()
+            rut = rut_entry.get().strip()
+            id_curso = id_curso_entry.get().strip()
+            anio_inscripcion = int(anio_entry.get().strip())
+            metodo_llegada = metodo_var.get()
+
+            # Procesar datos de empresa
+            nombre_empresa = None
+            orden_sence = None
+            id_folio = None
+
+            if metodo_llegada == "EMPRESA":
+                nombre_empresa = nombre_empresa_entry.get().strip()
+                if nombre_empresa:
+                    orden_sence = orden_sence_entry.get().strip() or None
+                    id_folio = id_folio_entry.get().strip() or None
+
+                    try:
+                        if orden_sence:
+                            orden_sence = int(orden_sence)
+                        if id_folio:
+                            id_folio = int(id_folio)
+                    except ValueError:
                         messagebox.showerror(
                             "Error",
-                            "La fecha de término no puede ser anterior a la fecha de inscripción",
+                            "Los campos numéricos de empresa deben ser números enteros",
                             parent=enroll_window
                         )
-                        fecha_termino_entry.focus()
-                        return False
-                return True
+                        return
 
-            # Frame para método de llegada
-            metodo_frame = tk.LabelFrame(
-                main_frame,
-                text="Método de Llegada",
-                bg="#f0f5ff",
-                fg="#022e86",
-                font=("Helvetica", 10)
-            )
-            metodo_frame.pack(fill='x', pady=10)
+            # Validar inscripción duplicada
+            if validate_duplicate_enrollment(rut, id_curso, anio_inscripcion):
+                messagebox.showerror(
+                    "Error",
+                    "El alumno ya está inscrito en este curso para el año especificado",
+                    parent=enroll_window
+                )
+                return
 
-            # Variable para método de llegada
-            metodo_var = tk.StringVar(value="PARTICULAR")
-
-            # Frame para radiobuttons
-            radio_frame = tk.Frame(metodo_frame, bg="#f0f5ff")
-            radio_frame.pack(pady=5)
-
-            tk.Radiobutton(
-                radio_frame,
-                text="Particular",
-                variable=metodo_var,
-                value="PARTICULAR",
-                bg="#f0f5ff",
-                fg="#022e86",
-                font=("Helvetica", 10),
-                command=lambda: toggle_empresa_fields(False)
-            ).pack(side=tk.LEFT, padx=40)
-
-            tk.Radiobutton(
-                radio_frame,
-                text="Empresa",
-                variable=metodo_var,
-                value="EMPRESA",
-                bg="#f0f5ff",
-                fg="#022e86",
-                font=("Helvetica", 10),
-                command=lambda: toggle_empresa_fields(True)
-            ).pack(side=tk.LEFT, padx=40)
-
-            # Frame para campos de empresa
-            empresa_frame = tk.Frame(main_frame, bg="#f0f5ff")
-            empresa_frame.pack(fill='x')
-
-            nombre_empresa_entry = create_label_entry(empresa_frame, "Nombre de Empresa:")
-            orden_sence_entry = create_label_entry(empresa_frame, "Orden SENCE:")
-            id_folio_entry = create_label_entry(empresa_frame, "ID Folio:")
-            empresa_frame.pack_forget()
-
-            def toggle_empresa_fields(show):
-                if show:
-                    empresa_frame.pack(fill='x', pady=5)
-                else:
-                    empresa_frame.pack_forget()
-                    nombre_empresa_entry.delete(0, tk.END)
-                    orden_sence_entry.delete(0, tk.END)
-                    id_folio_entry.delete(0, tk.END)
-
-            def validate_enrollment_data():
-                # Validar campos requeridos
-                if not all([
-                    acta_entry.get().strip(),
-                    rut_entry.get().strip(),
-                    id_curso_entry.get().strip(),
-                    anio_entry.get().strip()
-                ]):
-                    messagebox.showwarning(
-                        "Campos vacíos",
-                        "Complete todos los campos requeridos.",
-                        parent=enroll_window
-                    )
-                    return False
-
-                # Validar RUT
-                if not validate_rut_entry():
-                    return False
-
-                # Validar curso
-                if not validate_curso_exists(id_curso_entry.get().strip()):
-                    return False
-
-                # Validar año
-                try:
-                    anio = int(anio_entry.get().strip())
-                    if anio < 2000 or anio > 2100:  # Rango razonable
-                        raise ValueError
-                except ValueError:
-                    messagebox.showerror(
-                        "Error",
-                        "Año de inscripción inválido",
-                        parent=enroll_window
-                    )
-                    return False
-
-                # Validar fecha término
-                if not validate_fecha_termino():
-                    return False
-
-                return True
-
-            # Frame inferior para el botón
-            button_frame = tk.Frame(enroll_window, bg="#f0f5ff", pady=20)
-            button_frame.pack(side=tk.BOTTOM, fill='x')
-
-            def save_enrollment():
-                if not validate_enrollment_data():
-                    return
-
-                # Obtener datos básicos
-                numero_acta = acta_entry.get().strip()
-                rut = rut_entry.get().strip()
-                id_curso = id_curso_entry.get().strip()
-                fecha_term = fecha_termino_entry.get().strip() or None
-                anio_inscripcion = int(anio_entry.get().strip())
-                metodo_llegada = metodo_var.get()
-
-                # Procesar datos de empresa
-                nombre_empresa = None
-                orden_sence = None
-                id_folio = None
-
-                if metodo_llegada == "EMPRESA":
-                    nombre_empresa = nombre_empresa_entry.get().strip()
-                    if nombre_empresa:
-                        orden_sence = orden_sence_entry.get().strip() or None
-                        id_folio = id_folio_entry.get().strip() or None
-
-                        try:
-                            if orden_sence:
-                                orden_sence = int(orden_sence)
-                            if id_folio:
-                                id_folio = int(id_folio)
-                        except ValueError:
-                            messagebox.showerror(
-                                "Error",
-                                "Los campos numéricos de empresa deben ser números enteros",
-                                parent=enroll_window
-                            )
-                            return
-
-                # Validar inscripción duplicada
-                if validate_duplicate_enrollment(rut, id_curso, anio_inscripcion):
-                    messagebox.showerror(
-                        "Error",
-                        "El alumno ya está inscrito en este curso para el año especificado",
-                        parent=enroll_window
-                    )
-                    return
-
-                # Intentar guardar la inscripción
-                # Convertir fechas al formato correcto
-                try:
-                    fecha_inscripcion = datetime.strptime(fecha_actual, '%Y-%m-%d').date()
-                    fecha_termino = None
-                    if fecha_term:
-                        fecha_termino = datetime.strptime(fecha_term, '%Y-%m-%d').date()
-                    
-                    success, message = enroll_student(
-                        id_alumno=rut,
-                        id_curso=id_curso,
-                        numero_acta=numero_acta,
-                        fecha_inscripcion=fecha_inscripcion,
-                        fecha_termino_condicional=fecha_termino,
-                        anio_inscripcion=anio_inscripcion,
-                        metodo_llegada=metodo_llegada,
-                        nombre_empresa=nombre_empresa,
-                        ordenSence=orden_sence,
-                        idfolio=id_folio
-                    )
-                except ValueError as e:
-                    messagebox.showerror(
-                        "Error",
-                        f"Error en el formato de las fechas: {str(e)}",
-                        parent=enroll_window
-                    )
-                    return
+            try:
+                fecha_inscripcion = datetime.strptime(fecha_actual, '%Y-%m-%d').date()
+                
+                success, message = enroll_student(
+                    id_alumno=rut,
+                    id_curso=id_curso,
+                    numero_acta=numero_acta,
+                    fecha_inscripcion=fecha_inscripcion,
+                    anio_inscripcion=anio_inscripcion,
+                    metodo_llegada=metodo_llegada,
+                    nombre_empresa=nombre_empresa,
+                    ordenSence=orden_sence,
+                    idfolio=id_folio
+                )
 
                 if success:
-                    messagebox.showinfo(
-                        "Éxito",
-                        "Alumno matriculado correctamente",
-                        parent=enroll_window
-                    )
+                    messagebox.showinfo("Éxito", "Alumno matriculado correctamente", parent=enroll_window)
                     enroll_window.destroy()
-                    self.show_inscriptions()  # Actualizar vista
+                    self.show_inscriptions()
                 else:
-                    messagebox.showerror(
-                        "Error al matricular",
-                        f"No se pudo matricular el alumno:\n{message}",
-                        parent=enroll_window
-                    )
+                    messagebox.showerror("Error al matricular", f"No se pudo matricular el alumno:\n{message}", parent=enroll_window)
 
-            # Botón de guardar
-            tk.Button(
-                button_frame,
-                text="Guardar",
-                bg="#022e86",
-                fg="white",
-                font=("Helvetica", 10, "bold"),
-                relief="flat",
-                padx=30,
-                pady=10,
-                cursor="hand2",
-                width=15,
-                command=save_enrollment
-            ).pack()
+            except Exception as e:
+                messagebox.showerror(
+                    "Error",
+                    f"Error al procesar la inscripción: {str(e)}",
+                    parent=enroll_window
+                )
+
+        # Frame inferior para el botón
+        button_frame = tk.Frame(enroll_window, bg="#f0f5ff", pady=20)
+        button_frame.pack(side=tk.BOTTOM, fill='x')
+
+        # Botón de guardar
+        tk.Button(
+            button_frame,
+            text="Guardar",
+            bg="#022e86",
+            fg="white",
+            font=("Helvetica", 10, "bold"),
+            relief="flat",
+            padx=30,
+            pady=10,
+            cursor="hand2",
+            width=15,
+            command=save_enrollment
+        ).pack()
  
     def delete_inscription_window(self):
         delete_window = tk.Toplevel(self.root)
@@ -1231,6 +1191,9 @@ class App:
             command=save_changes
         ).pack()
 
+    def show_bulk_enrollment(self):
+        from gui.bulk_enrollment import BulkEnrollment
+        bulk_window = BulkEnrollment(self.root)
     # ---------------------------------------------------
     #                 CURSOS
     # ---------------------------------------------------
@@ -1244,7 +1207,8 @@ class App:
             "codigo_elearning",
             "horas_cronologicas",
             "horas_pedagogicas",
-            "valor"
+            "valor",
+            "duracionDias"
         )
         headers = (
             "ID",
@@ -1254,10 +1218,24 @@ class App:
             "Código eLearning",
             "Hrs. Cron.",
             "Hrs. Pedag.",
-            "Valor"
+            "Valor",
+            "Duración (días)"
         )
         self._update_title_label("Listado de Cursos")
         self._populate_tree(columns, headers, courses)
+
+        # Ajustar anchos de columna específicamente para cursos si es necesario
+        if hasattr(self, 'tree'):
+            # Columnas que necesitan más espacio
+            self.tree.column("nombre_curso", width=300)  # Nombre más ancho
+            self.tree.column("modalidad", width=100)
+            self.tree.column("id_curso", width=80)
+            self.tree.column("codigo_sence", width=100)
+            self.tree.column("codigo_elearning", width=100)
+            self.tree.column("horas_cronologicas", width=80)
+            self.tree.column("horas_pedagogicas", width=80)
+            self.tree.column("valor", width=100)
+            self.tree.column("duracionDias", width=100)
 
     def add_course_window(self):
         """
@@ -1271,7 +1249,7 @@ class App:
         window.focus_force()
 
         # Configuración de la ventana
-        width, height = 800, 450
+        width, height = 800, 500  # Aumenté un poco el height para el nuevo campo
         scr_w = window.winfo_screenwidth()
         scr_h = window.winfo_screenheight()
         x = (scr_w // 2) - (width // 2)
@@ -1306,6 +1284,7 @@ class App:
         horas_cron_var = tk.StringVar()
         horas_pedag_var = tk.StringVar()
         valor_var = tk.StringVar()
+        duracion_dias_var = tk.StringVar()  # Nueva variable
 
         def create_label_entry(parent, label_text, row, col, var=None, width=35):
             label = tk.Label(
@@ -1338,6 +1317,7 @@ class App:
         create_label_entry(main_frame, "Nombre:", 2, 0, nombre_var)
         create_label_entry(main_frame, "Modalidad:", 3, 0, modalidad_var)
         create_label_entry(main_frame, "Código SENCE:", 4, 0, sence_var)
+        create_label_entry(main_frame, "Duración (días):", 5, 0, duracion_dias_var)  # Nuevo campo
 
         # Segunda columna de campos
         create_label_entry(main_frame, "Código eLearning:", 1, 2, elearn_var)
@@ -1374,6 +1354,7 @@ class App:
             elearn_text = elearn_var.get().strip()
             horas_cron_text = horas_cron_var.get().strip()
             valor_text = valor_var.get().strip()
+            duracion_dias_text = duracion_dias_var.get().strip()  # Nuevo campo
 
             # Validaciones
             if not id_curso or not nombre_curso or not modalidad:
@@ -1390,6 +1371,7 @@ class App:
                 codigo_elearn = int(elearn_text) if elearn_text else None
                 horas_cron = float(horas_cron_text) if horas_cron_text else None
                 valor_curso = float(valor_text) if valor_text else None
+                duracion_dias = int(duracion_dias_text) if duracion_dias_text else None  # Nuevo campo
             except ValueError:
                 messagebox.showerror(
                     "Error",
@@ -1397,7 +1379,8 @@ class App:
                     "- Código SENCE: debe ser número entero\n" +
                     "- Código eLearning: debe ser número entero\n" +
                     "- Horas Cronológicas: debe ser número decimal\n" +
-                    "- Valor: debe ser número decimal",
+                    "- Valor: debe ser número decimal\n" +
+                    "- Duración: debe ser número entero",  # Nueva validación
                     parent=window
                 )
                 return
@@ -1410,7 +1393,8 @@ class App:
                 codigo_sence=codigo_sence,
                 codigo_elearning=codigo_elearn,
                 horas_cronologicas=horas_cron,
-                valor=valor_curso
+                valor=valor_curso,
+                duracionDias=duracion_dias  # Nuevo campo
             )
 
             if success:
@@ -1422,7 +1406,7 @@ class App:
 
         # Frame para botones
         button_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        button_frame.grid(row=5, column=0, columnspan=4, pady=30)
+        button_frame.grid(row=6, column=0, columnspan=4, pady=30)  # Actualizado el row
 
         # Botón de guardar
         tk.Button(
@@ -1450,7 +1434,7 @@ class App:
         window.focus_force()
 
         # Configuración de la ventana
-        width, height = 800, 450
+        width, height = 800, 500  # Aumentado height para nuevo campo
         scr_w = window.winfo_screenwidth()
         scr_h = window.winfo_screenheight()
         x = (scr_w // 2) - (width // 2)
@@ -1484,6 +1468,7 @@ class App:
         horas_cron_var = tk.StringVar()
         horas_pedag_var = tk.StringVar()
         valor_var = tk.StringVar()
+        duracion_dias_var = tk.StringVar()  # Nueva variable
 
         # Frame para búsqueda de ID
         search_frame = tk.Frame(main_frame, bg="#f0f5ff")
@@ -1556,6 +1541,7 @@ class App:
                 horas_cron_var.set(str(course[5]) if course[5] is not None else "")
                 horas_pedag_var.set(str(course[6]) if course[6] is not None else "")
                 valor_var.set(str(course[7]) if course[7] is not None else "")
+                duracion_dias_var.set(str(course[8]) if course[8] is not None else "")  # Nuevo campo
                 
                 # Actualizar campos
                 calculate_horas_pedagogicas()
@@ -1584,6 +1570,7 @@ class App:
         create_label_entry(main_frame, "Nombre:", 2, 0, nombre_var)
         create_label_entry(main_frame, "Modalidad:", 3, 0, modalidad_var)
         create_label_entry(main_frame, "Código SENCE:", 4, 0, sence_var)
+        create_label_entry(main_frame, "Duración (días):", 5, 0, duracion_dias_var)  # Nuevo campo
 
         # Segunda columna de campos
         create_label_entry(main_frame, "Código eLearning:", 2, 2, elearning_var)
@@ -1626,6 +1613,7 @@ class App:
             elearn_text = elearning_var.get().strip()
             horas_cron_text = horas_cron_var.get().strip()
             valor_text = valor_var.get().strip()
+            duracion_dias_text = duracion_dias_var.get().strip()  # Nuevo campo
 
             # Validaciones básicas
             if not nombre or not modalidad:
@@ -1643,6 +1631,7 @@ class App:
                 horas_cron = float(horas_cron_text) if horas_cron_text else None
                 horas_pedag = float(horas_pedag_var.get()) if horas_pedag_var.get() else None
                 valor_curso = float(valor_text) if valor_text else None
+                duracion_dias = int(duracion_dias_text) if duracion_dias_text else None  # Nuevo campo
             except ValueError:
                 messagebox.showerror(
                     "Error",
@@ -1650,7 +1639,8 @@ class App:
                     "- Código SENCE: debe ser número entero\n" +
                     "- Código eLearning: debe ser número entero\n" +
                     "- Horas Cronológicas: debe ser número decimal\n" +
-                    "- Valor: debe ser número decimal",
+                    "- Valor: debe ser número decimal\n" +
+                    "- Duración: debe ser número entero",  # Nueva validación
                     parent=window
                 )
                 return
@@ -1664,7 +1654,8 @@ class App:
                 codigo_elearning=codigo_elearn,
                 horas_cronologicas=horas_cron,
                 horas_pedagogicas=horas_pedag,
-                valor=valor_curso
+                valor=valor_curso,
+                duracionDias=duracion_dias  # Nuevo campo
             )
 
             if success:
@@ -1676,7 +1667,7 @@ class App:
 
         # Frame para botones
         button_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        button_frame.grid(row=6, column=0, columnspan=4, pady=30)
+        button_frame.grid(row=7, column=0, columnspan=4, pady=30)  # Actualizado el row
 
         # Botón de guardar
         tk.Button(
@@ -2617,6 +2608,384 @@ class App:
                 ("Estado:", None)
             ]
         )
+
+   #=======================================================
+   #                EMPRESAS Y CONTACTOS
+   #=======================================================
+    def add_edit_empresa_window(self, empresa_data=None):
+        """
+        Ventana para agregar o editar una empresa.
+        Si empresa_data es None, se usa para agregar. Si tiene datos, para editar.
+        """
+        window = tk.Toplevel(self.root)
+        window.title("Editar Empresa" if empresa_data else "Agregar Empresa")
+        window.configure(bg="#f0f5ff")
+        window.grab_set()
+        window.focus_force()
+
+        # Configuración de la ventana
+        width, height = 800, 500
+        scr_w = window.winfo_screenwidth()
+        scr_h = window.winfo_screenheight()
+        x = (scr_w // 2) - (width // 2)
+        y = (scr_h // 2) - (height // 2)
+        window.geometry(f"{width}x{height}+{x}+{y}")
+
+        try:
+            window.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar ícono: {e}")
+
+        # Frame principal
+        main_frame = tk.Frame(window, bg="#f0f5ff", padx=30, pady=20)
+        main_frame.pack(fill='both', expand=True)
+
+        # Título
+        title_label = tk.Label(
+            main_frame,
+            text="Editar Datos de Empresa" if empresa_data else "Agregar Nueva Empresa",
+            font=("Helvetica", 16, "bold"),
+            bg="#f0f5ff",
+            fg="#022e86"
+        )
+        title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
+
+        # Variables
+        id_empresa_var = tk.StringVar(value=empresa_data['id_empresa'] if empresa_data else '')
+        rut_empresa_var = tk.StringVar(value=empresa_data['rut_empresa'] if empresa_data else '')
+        direccion_var = tk.StringVar(value=empresa_data['direccion_empresa'] if empresa_data else '')
+
+        def create_label_entry(parent, label_text, row, col, var=None):
+            tk.Label(
+                parent,
+                text=label_text,
+                bg="#f0f5ff",
+                fg="#022e86",
+                font=("Helvetica", 10),
+                anchor='e'
+            ).grid(row=row, column=col, padx=(10, 5), pady=10, sticky='e')
+            
+            entry = tk.Entry(
+                parent,
+                width=35,
+                font=("Helvetica", 10),
+                relief="solid",
+                bd=1,
+                textvariable=var
+            )
+            entry.grid(row=row, column=col+1, padx=(0, 20), pady=10, sticky='w')
+            return entry
+
+        # Configurar el grid
+        main_frame.grid_columnconfigure(1, weight=1)
+
+        # Campos
+        create_label_entry(main_frame, "ID Empresa:", 1, 0, id_empresa_var)
+        create_label_entry(main_frame, "RUT Empresa:", 2, 0, rut_empresa_var)
+        create_label_entry(main_frame, "Dirección:", 3, 0, direccion_var)
+
+        def save_empresa():
+            empresa_data = {
+                'id_empresa': id_empresa_var.get().strip(),
+                'rut_empresa': rut_empresa_var.get().strip(),
+                'direccion_empresa': direccion_var.get().strip() or None
+            }
+
+            if not empresa_data['id_empresa'] or not empresa_data['rut_empresa']:
+                messagebox.showwarning("Error", "ID y RUT de empresa son obligatorios", parent=window)
+                return
+
+            if not validar_rut(empresa_data['rut_empresa']):
+                messagebox.showerror("Error", "El RUT ingresado es inválido.", parent=window)
+                return
+
+            if empresa_data:  # Editar
+                ok = update_empresa(empresa_data)
+            else:  # Agregar nuevo
+                ok = insert_empresa(empresa_data)
+            
+            if ok:
+                messagebox.showinfo("Éxito", 
+                                "Empresa actualizada correctamente." if empresa_data else "Empresa agregada correctamente.", 
+                                parent=window)
+                window.destroy()
+                self.show_empresas()  # Actualizar lista
+            else:
+                messagebox.showerror("Error", 
+                                    "No se pudo actualizar la empresa." if empresa_data else "No se pudo agregar la empresa.", 
+                                    parent=window)
+
+        # Botón de guardar
+        button_frame = tk.Frame(main_frame, bg="#f0f5ff")
+        button_frame.grid(row=4, column=0, columnspan=2, pady=30)
+
+        tk.Button(
+            button_frame,
+            text="Guardar Cambios" if empresa_data else "Agregar Empresa",
+            bg="#022e86",
+            fg="white",
+            font=("Helvetica", 10, "bold"),
+            relief="flat",
+            padx=30,
+            pady=10,
+            cursor="hand2",
+            command=save_empresa
+        ).pack()
+
+    def show_empresas(self):
+        try:
+            if not hasattr(self, 'tree'):
+                print("Error: tree no está inicializado")
+                return
+                
+            # Actualizar el título
+            self._update_title_label("Listado de Empresas")
+                
+            # Definir las columnas y headers
+            columns = (
+                "id_empresa", "rut_empresa", "direccion_empresa", 
+                "nombre_contacto", "correo_contacto", "telefono_contacto", 
+                "rol_contacto"
+            )
+                
+            headers = (
+                "Nombre Empresa", "RUT", "Dirección", 
+                "Contacto", "Email", "Teléfono", 
+                "Rol"
+            )
+
+            # Obtener datos
+            data_raw = fetch_all_empresas(connect_db())
+            formatted_data = []
+                
+            if data_raw:
+                for empresa in data_raw:
+                    row = [
+                        empresa.get("id_empresa", ""),
+                        empresa.get("rut_empresa", ""),
+                        empresa.get("direccion_empresa", ""),
+                        empresa.get("nombre_contacto", ""),
+                        empresa.get("correo_contacto", ""),
+                        empresa.get("telefono_contacto", ""),
+                        empresa.get("rol_contacto", "")
+                    ]
+                    formatted_data.append(row)
+                
+            # Limpiar y configurar el tree
+            self.tree.delete(*self.tree.get_children())
+            self.tree.config(columns=columns, show="headings")
+                
+            # Configurar encabezados y columnas
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                # Ajustar anchos según el tipo de columna
+                if column in ["direccion_empresa", "correo_contacto"]:
+                    width = 200
+                elif column in ["id_empresa", "nombre_contacto"]:
+                    width = 150
+                elif column in ["rut_empresa"]:
+                    width = 100
+                else:
+                    width = 120
+                self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
+                
+            # Insertar datos si existen
+            for item in formatted_data:
+                self.tree.insert("", "end", values=item)
+                    
+        except Exception as e:
+            print(f"Error al mostrar empresas: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def manage_contacts_window(self, id_empresa):
+        """
+        Ventana para gestionar los contactos de una empresa específica.
+        """
+        window = tk.Toplevel(self.root)
+        window.title("Gestionar Contactos")
+        window.configure(bg="#f0f5ff")
+        window.grab_set()
+        window.focus_force()
+
+        # Configuración de la ventana
+        width, height = 1000, 600
+        scr_w = window.winfo_screenwidth()
+        scr_h = window.winfo_screenheight()
+        x = (scr_w // 2) - (width // 2)
+        y = (scr_h // 2) - (height // 2)
+        window.geometry(f"{width}x{height}+{x}+{y}")
+
+        # Frame principal
+        main_frame = tk.Frame(window, bg="#f0f5ff", padx=30, pady=20)
+        main_frame.pack(fill='both', expand=True)
+
+        # Título
+        title_label = tk.Label(
+            main_frame,
+            text=f"Contactos de Empresa",
+            font=("Helvetica", 16, "bold"),
+            bg="#f0f5ff",
+            fg="#022e86"
+        )
+        title_label.pack(pady=(0, 20))
+
+        # Frame para la tabla
+        table_frame = tk.Frame(main_frame, bg="#f0f5ff")
+        table_frame.pack(fill='both', expand=True, pady=10)
+
+        # Crear Treeview
+        columns = ("ID", "Nombre", "Rol", "Correo", "Teléfono")
+        tree = ttk.Treeview(table_frame, columns=columns, show='headings')
+
+        # Configurar columnas
+        tree.heading("ID", text="ID")
+        tree.heading("Nombre", text="Nombre")
+        tree.heading("Rol", text="Rol")
+        tree.heading("Correo", text="Correo")
+        tree.heading("Teléfono", text="Teléfono")
+
+        tree.column("ID", width=50)
+        tree.column("Nombre", width=200)
+        tree.column("Rol", width=150)
+        tree.column("Correo", width=200)
+        tree.column("Teléfono", width=150)
+
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        # Empaquetar Treeview y scrollbar
+        tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def load_contacts():
+            for item in tree.get_children():
+                tree.delete(item)
+            contacts = fetch_contactos_by_empresa(id_empresa)
+            for contact in contacts:
+                tree.insert("", "end", values=(
+                    contact['id_contacto'],
+                    contact['nombre_contacto'],
+                    contact['rol_contacto'],
+                    contact['correo_contacto'],
+                    contact['telefono_contacto']
+                ))
+
+        def add_contact_window():
+            contact_window = tk.Toplevel(window)
+            contact_window.title("Agregar Contacto")
+            contact_window.configure(bg="#f0f5ff")
+            contact_window.grab_set()
+
+            # Variables
+            nombre_var = tk.StringVar()
+            rol_var = tk.StringVar()
+            correo_var = tk.StringVar()
+            telefono_var = tk.StringVar()
+
+            # Frame para formulario
+            form_frame = tk.Frame(contact_window, bg="#f0f5ff", padx=20, pady=20)
+            form_frame.pack(fill='both', expand=True)
+
+            # Campos
+            fields = [
+                ("Nombre:", nombre_var),
+                ("Rol:", rol_var),
+                ("Correo:", correo_var),
+                ("Teléfono:", telefono_var)
+            ]
+
+            for i, (label_text, var) in enumerate(fields):
+                tk.Label(
+                    form_frame,
+                    text=label_text,
+                    bg="#f0f5ff",
+                    fg="#022e86"
+                ).grid(row=i, column=0, pady=5, padx=5)
+                
+                tk.Entry(
+                    form_frame,
+                    textvariable=var,
+                    width=30
+                ).grid(row=i, column=1, pady=5, padx=5)
+
+            def save_contact():
+                contact_data = {
+                    'id_empresa': id_empresa,
+                    'nombre_contacto': nombre_var.get().strip(),
+                    'rol_contacto': rol_var.get().strip(),
+                    'correo_contacto': correo_var.get().strip(),
+                    'telefono_contacto': telefono_var.get().strip()
+                }
+
+                if not contact_data['nombre_contacto']:
+                    messagebox.showwarning("Error", "El nombre es obligatorio", parent=contact_window)
+                    return
+
+                if insert_contacto_empresa(contact_data):
+                    messagebox.showinfo("Éxito", "Contacto agregado correctamente", parent=contact_window)
+                    contact_window.destroy()
+                    load_contacts()
+                else:
+                    messagebox.showerror("Error", "No se pudo agregar el contacto", parent=contact_window)
+
+            # Botón guardar
+            tk.Button(
+                form_frame,
+                text="Guardar Contacto",
+                bg="#022e86",
+                fg="white",
+                command=save_contact
+            ).grid(row=len(fields), column=0, columnspan=2, pady=20)
+
+        # Frame para botones
+        button_frame = tk.Frame(main_frame, bg="#f0f5ff")
+        button_frame.pack(pady=20)
+
+        # Botones
+        tk.Button(
+            button_frame,
+            text="Agregar Contacto",
+            bg="#022e86",
+            fg="white",
+            font=("Helvetica", 10, "bold"),
+            relief="flat",
+            padx=20,
+            pady=5,
+            cursor="hand2",
+            command=add_contact_window
+        ).pack(side='left', padx=5)
+
+        def delete_contact():
+            selected = tree.selection()
+            if not selected:
+                messagebox.showwarning("Error", "Seleccione un contacto para eliminar", parent=window)
+                return
+            
+            if messagebox.askyesno("Confirmar", "¿Está seguro de eliminar este contacto?", parent=window):
+                contact_id = tree.item(selected[0])['values'][0]
+                if delete_contacto_empresa(contact_id):
+                    messagebox.showinfo("Éxito", "Contacto eliminado correctamente", parent=window)
+                    load_contacts()
+                else:
+                    messagebox.showerror("Error", "No se pudo eliminar el contacto", parent=window)
+
+        tk.Button(
+            button_frame,
+            text="Eliminar Contacto",
+            bg="#cc0000",
+            fg="white",
+            font=("Helvetica", 10, "bold"),
+            relief="flat",
+            padx=20,
+            pady=5,
+            cursor="hand2",
+            command=delete_contact
+        ).pack(side='left', padx=5)
+
+        # Cargar contactos iniciales
+        load_contacts()
 
     # ---------------------------------------------------
     #  Función genérica para varias "ventanas de añadir"
