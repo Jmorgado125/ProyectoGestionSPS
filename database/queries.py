@@ -1,6 +1,7 @@
 from database.db_config import connect_db
 import re
 from datetime import datetime , timedelta
+from helpers.utils import requiere_rol
 
 # =======================================
 #          UTILIDAD: VALIDAR RUT
@@ -56,17 +57,23 @@ def fetch_courses():
     return []
 
 def insert_course(
-    id_curso, 
-    nombre_curso, 
-    modalidad, 
-    codigo_sence, 
-    codigo_elearning, 
-    horas_cronologicas, 
+    id_curso,
+    nombre_curso,
+    modalidad,
+    codigo_sence,
+    codigo_elearning,
+    horas_cronologicas,
     valor,
-    duracionDias
+    duracionDias,
+    tipo_curso,
+    resolucion,
+    fecha_resolucion,
+    fecha_vigencia,
+    valor_alumno_sence
 ):
     """
     Inserta un nuevo curso con cálculo de horas pedagógicas, valor del curso y duración en días.
+    Incluye nuevos campos como tipo_curso, resolución, fechas y valor por alumno SENCE.
     """
     conn = connect_db()
     if conn:
@@ -74,11 +81,11 @@ def insert_course(
             cursor = conn.cursor()
             horas_pedagogicas = round((horas_cronologicas * 4 / 3), 1)
             query = """
-                INSERT INTO Cursos
-                (id_curso, nombre_curso, modalidad,
-                 codigo_sence, codigo_elearning,
-                 horas_cronologicas, horas_pedagogicas, valor, duracionDias)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO cursos
+                (id_curso, nombre_curso, modalidad, codigo_sence, codigo_elearning,
+                 horas_cronologicas, horas_pedagogicas, valor, duracionDias,
+                 tipo_curso, resolucion, fecha_resolucion, fecha_vigencia, valor_alumno_sence)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             cursor.execute(query, (
                 id_curso,
@@ -89,7 +96,12 @@ def insert_course(
                 horas_cronologicas,
                 horas_pedagogicas,
                 valor,
-                duracionDias
+                duracionDias,
+                tipo_curso,
+                resolucion,
+                fecha_resolucion,
+                fecha_vigencia,
+                valor_alumno_sence
             ))
             conn.commit()
         except Exception as e:
@@ -110,12 +122,15 @@ def update_course(
     horas_cronologicas=None,
     horas_pedagogicas=None,
     valor=None,
-    duracionDias=None
+    duracionDias=None,
+    tipo_curso=None,
+    resolucion=None,
+    fecha_resolucion=None,
+    fecha_vigencia=None,
+    valor_alumno_sence=None
 ):
     """
-    Actualiza los datos de un curso existente, incluido el 'valor' y 'duracionDias'.
-    Si 'horas_cronologicas' se cambia, recalcula 'horas_pedagogicas' 
-    a menos que se haya pasado manualmente.
+    Actualiza los datos de un curso existente con los nombres de columnas corregidos.
     """
     conn = connect_db()
     if conn:
@@ -129,42 +144,31 @@ def update_course(
                 print(f"Curso con ID {id_curso} no encontrado.")
                 return False
 
-            # Asumiendo orden de columnas en la tabla Cursos:
-            #  course[0] => id_curso
-            #  course[1] => nombre_curso
-            #  course[2] => modalidad
-            #  course[3] => codigo_sence
-            #  course[4] => codigo_elearning
-            #  course[5] => horas_cronologicas
-            #  course[6] => horas_pedagogicas
-            #  course[7] => valor
-            #  course[8] => duracionDias
-
-            current_nombre   = course[1]
-            current_mod      = course[2]
-            current_sence    = course[3]
-            current_elearn   = course[4]
-            current_h_cron   = course[5]
-            current_h_pedag  = course[6]
-            current_valor    = course[7]
-            current_dias     = course[8]
+            # Nombres de columnas corregidos
+            current_nombre = course[1]
+            current_mod = course[2]
+            current_sence = course[3]
+            current_elearning = course[4]
+            current_h_cron = course[5]
+            current_h_pedag = course[6]
+            current_valor = course[7]
+            current_dias = course[8]
+            current_tipo = course[9]
+            current_resolucion = course[10]
+            current_fecha_resolucion = course[11]
+            current_fecha_vigencia = course[12]
+            current_valor_alumno_sence = course[13]
 
             # 2) Determinar horas_cronologicas
             new_horas_cron = horas_cronologicas if horas_cronologicas is not None else current_h_cron
 
             # 3) Determinar horas_pedagogicas
             if horas_pedagogicas is not None:
-                # Si nos pasan un valor manual, lo usamos tal cual
                 new_horas_pedag = horas_pedagogicas
             else:
-                # Si no pasó horas_pedagogicas, la calculamos
                 new_horas_pedag = round((new_horas_cron * 4 / 3), 1)
 
-            # 4) Determinar valor y duración
-            new_valor = valor if valor is not None else current_valor
-            new_dias = duracionDias if duracionDias is not None else current_dias
-
-            # 5) Armamos la query de UPDATE
+            # 4) Query actualizada con los nombres correctos de las columnas
             query = """
                 UPDATE Cursos
                 SET nombre_curso = %s,
@@ -174,31 +178,43 @@ def update_course(
                     horas_cronologicas = %s,
                     horas_pedagogicas = %s,
                     valor = %s,
-                    duracionDias = %s
+                    duracionDias = %s,
+                    tipo_curso = %s,
+                    resolucion = %s,
+                    fecha_resolucion = %s,
+                    fecha_vigencia = %s,
+                    valor_alumno_sence = %s
                 WHERE id_curso = %s
             """
 
-            # 6) Ejecutar el update
+            # 5) Ejecutar el update con todos los campos
             cursor.execute(query, (
                 nombre_curso or current_nombre,
                 modalidad or current_mod,
                 codigo_sence if codigo_sence is not None else current_sence,
-                codigo_elearning if codigo_elearning is not None else current_elearn,
+                codigo_elearning if codigo_elearning is not None else current_elearning,
                 new_horas_cron,
                 new_horas_pedag,
-                new_valor,
-                new_dias,
+                valor if valor is not None else current_valor,
+                duracionDias if duracionDias is not None else current_dias,
+                tipo_curso if tipo_curso is not None else current_tipo,
+                resolucion if resolucion is not None else current_resolucion,
+                fecha_resolucion if fecha_resolucion is not None else current_fecha_resolucion,
+                fecha_vigencia if fecha_vigencia is not None else current_fecha_vigencia,
+                valor_alumno_sence if valor_alumno_sence is not None else current_valor_alumno_sence,
                 id_curso
             ))
             conn.commit()
+            return True
 
         except Exception as e:
             print("Error al actualizar curso:", e)
             return False
         finally:
-            cursor.close()
-            conn.close()
-        return True
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
     return False
 
 def delete_course_by_id(id_curso):
@@ -562,7 +578,7 @@ def validate_curso_exists(id_curso):
 
 def fetch_inscriptions():
     """
-    Obtiene todas las inscripciones con información detallada.
+    Obtiene todas las inscripciones con información detallada incluyendo el estado del pago.
     """
     conn = connect_db()
     if conn:
@@ -582,16 +598,33 @@ def fetch_inscriptions():
                     i.fecha_inscripcion as F_Inscripcion,
                     i.fecha_termino_condicional as F_Termino,
                     i.anio_inscripcion as Año,
-                    i.metodo_llegada as Metodo,
                     CASE 
                         WHEN i.id_empresa IS NOT NULL THEN e.id_empresa 
                         ELSE 'Particular'
                     END as Empresa,
                     i.ordenSence as Codigo_Sence,
-                    i.idfolio as Folio
+                    i.idfolio as Folio,
+                    COALESCE(
+                        CASE 
+                            WHEN p.estado IS NULL THEN 'SIN PROCESAR'
+                            ELSE UPPER(p.estado)
+                        END,
+                        'SIN PROCESAR'
+                    ) as Estado_Pago
                 FROM inscripciones i
                 LEFT JOIN alumnos a ON i.id_alumno = a.rut
                 LEFT JOIN empresa e ON i.id_empresa = e.id_empresa
+                LEFT JOIN (
+                    SELECT id_inscripcion, estado
+                    FROM pagos
+                    WHERE id_pago = (
+                        SELECT id_pago
+                        FROM pagos p2
+                        WHERE p2.id_inscripcion = pagos.id_inscripcion
+                        ORDER BY fecha_inscripcion DESC
+                        LIMIT 1
+                    )
+                ) p ON i.id_inscripcion = p.id_inscripcion
                 ORDER BY i.fecha_inscripcion DESC, i.id_inscripcion DESC
             """)
             results = cursor.fetchall()
@@ -607,30 +640,31 @@ def fetch_inscriptions():
 
 def format_inscription_data(inscription):
     """
-    Da formato a los datos de inscripción para mostrarlos en la tabla.
+    Formatea los datos de inscripción para su visualización.
+    La función espera que inscription sea una tupla con los datos en el orden de la query fetch_inscriptions
     """
     try:
-        fecha_inscripcion = inscription[5] if isinstance(inscription[5], str) else inscription[5].strftime('%Y-%m-%d') if inscription[5] else ''
-        fecha_termino = inscription[6] if isinstance(inscription[6], str) else inscription[6].strftime('%Y-%m-%d') if inscription[6] else ''
+        # Formatear fechas si existen
+        fecha_inscripcion = inscription[5].strftime('%Y-%m-%d') if inscription[5] else ''
+        fecha_termino = inscription[6].strftime('%Y-%m-%d') if inscription[6] else ''
         
         return {
-            "ID": inscription[0],
-            "N_Acta": inscription[1],
-            "RUT": inscription[2],
-            "Nombre_Completo": inscription[3],
-            "ID_Curso": inscription[4],
-            "F_Inscripcion": fecha_inscripcion,
-            "F_Termino": fecha_termino,
-            "Año": inscription[7],
-            "Metodo": inscription[8],
-            "Empresa": inscription[9],
-            "Codigo_Sence": inscription[10],
-            "Folio": inscription[11]
+            "ID": inscription[0],                    # id_inscripcion
+            "N_Acta": inscription[1],               # numero_acta
+            "RUT": inscription[2],                  # rut
+            "Nombre_Completo": inscription[3],      # nombre_completo
+            "ID_Curso": inscription[4],             # id_curso
+            "F_Inscripcion": fecha_inscripcion,     # fecha_inscripcion formateada
+            "F_Termino": fecha_termino,             # fecha_termino formateada
+            "Año": inscription[7],                  # anio_inscripcion
+            "Empresa": inscription[8],              # empresa
+            "Codigo_Sence": inscription[9],         # ordenSence
+            "Folio": inscription[10],               # idfolio
+            "Estado_Pago": inscription[11] if inscription[11] else 'SIN PROCESAR'  # estado_pago
         }
     except Exception as e:
-        print(f"Error al formatear inscripción: {e}")
-        print(f"Datos recibidos: {inscription}")
-        return {}
+        print(f"Error formateando datos de inscripción: {e}")
+        return None
 
 def fetch_inscription_by_id(id_inscripcion):
     """
@@ -998,71 +1032,673 @@ def fetch_courses_by_student_rut(rut):
         return results
     return []
 
-# =======================================
-#             PAGOS
-# =======================================
-def fetch_payments():
-    """Obtiene la lista de pagos."""
+def fetch_inscription_details(id_inscripcion):
+    """
+    Obtiene los detalles completos de una inscripción, incluyendo información
+    del alumno, curso y estado de pagos.
+    
+    Returns:
+        dict: Diccionario con toda la información de la inscripción o None si no se encuentra
+    """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM Pagos")
-            results = cursor.fetchall()
+            cursor.execute("""
+                SELECT 
+                    i.id_inscripcion,
+                    i.numero_acta,
+                    CONCAT(a.nombre, ' ', a.apellido) as nombre_alumno,
+                    c.nombre_curso,
+                    c.valor as valor_curso,
+                    i.fecha_inscripcion,
+                    i.fecha_termino_condicional,
+                    i.anio_inscripcion,
+                    i.metodo_llegada,
+                    COALESCE(e.id_empresa, 'Particular') as empresa,
+                    i.ordenSence,
+                    i.idfolio,
+                    -- Información de pagos
+                    p.id_pago,
+                    p.tipo_pago,
+                    p.modalidad_pago,
+                    p.fecha_inscripcion as fecha_pago,
+                    p.fecha_final as fecha_pago_final,
+                    p.num_cuotas,
+                    p.valor_total,
+                    p.estado as estado_pago,
+                    -- Contadores y sumas
+                    COUNT(DISTINCT p.id_pago) as total_pagos,
+                    SUM(CASE WHEN p.estado = 'pendiente' THEN p.valor_total ELSE 0 END) as monto_pendiente,
+                    SUM(CASE WHEN p.estado = 'pagado' THEN p.valor_total ELSE 0 END) as monto_pagado,
+                    -- Información de cuotas
+                    COUNT(DISTINCT cu.id_cuota) as total_cuotas,
+                    SUM(CASE WHEN cu.estado_cuota = 'pendiente' THEN 1 ELSE 0 END) as cuotas_pendientes,
+                    SUM(CASE WHEN cu.estado_cuota = 'pagada' THEN 1 ELSE 0 END) as cuotas_pagadas,
+                    SUM(CASE WHEN cu.estado_cuota = 'vencida' THEN 1 ELSE 0 END) as cuotas_vencidas,
+                    -- Información de contribuciones
+                    SUM(CASE WHEN co.tipo_contribuyente = 'alumno' THEN co.monto_contribuido ELSE 0 END) as monto_alumno,
+                    SUM(CASE WHEN co.tipo_contribuyente = 'empresa' THEN co.monto_contribuido ELSE 0 END) as monto_empresa,
+                    SUM(CASE WHEN co.tipo_contribuyente = 'sence' THEN co.monto_contribuido ELSE 0 END) as monto_sence
+                FROM inscripciones i 
+                LEFT JOIN alumnos a ON i.id_alumno = a.rut
+                LEFT JOIN cursos c ON i.id_curso = c.id_curso
+                LEFT JOIN empresa e ON i.id_empresa = e.id_empresa
+                LEFT JOIN pagos p ON i.id_inscripcion = p.id_inscripcion
+                LEFT JOIN cuotas cu ON p.id_pago = cu.id_pago
+                LEFT JOIN contribuciones co ON p.id_pago = co.id_pago
+                WHERE i.id_inscripcion = %s
+                GROUP BY 
+                    i.id_inscripcion, i.numero_acta, a.nombre, a.apellido,
+                    c.nombre_curso, c.valor, i.fecha_inscripcion, 
+                    i.fecha_termino_condicional, i.anio_inscripcion,
+                    i.metodo_llegada, e.id_empresa, i.ordenSence, i.idfolio,
+                    p.id_pago, p.tipo_pago, p.modalidad_pago, p.fecha_inscripcion,
+                    p.fecha_final, p.num_cuotas, p.valor_total, p.estado
+            """, (id_inscripcion,))
+            
+            result = cursor.fetchone()
+            
+            if result:
+                # Calcular estado general de pago
+                estado_general = 'SIN PROCESAR'
+                if result[20] > 0:  # Si hay pagos registrados
+                    if result[22] == result[18]:  # Si monto_pagado == valor_total
+                        estado_general = 'PAGADO'
+                    elif result[21] > 0:  # Si hay monto_pendiente
+                        estado_general = 'PENDIENTE'
+                    if result[26] > 0:  # Si hay cuotas vencidas
+                        estado_general = 'ATRASADO'
+
+                return {
+                    # Información básica
+                    'id_inscripcion': result[0],
+                    'numero_acta': result[1],
+                    'nombre_alumno': result[2],
+                    'nombre_curso': result[3],
+                    'valor_curso': result[4],
+                    'fecha_inscripcion': result[5],
+                    'fecha_termino': result[6],
+                    'anio': result[7],
+                    'metodo_llegada': result[8],
+                    'empresa': result[9],
+                    'orden_sence': result[10],
+                    'folio': result[11],
+                    
+                    # Información del último pago
+                    'ultimo_pago': {
+                        'id_pago': result[12],
+                        'tipo_pago': result[13],
+                        'modalidad_pago': result[14],
+                        'fecha_pago': result[15],
+                        'fecha_final': result[16],
+                        'num_cuotas': result[17],
+                        'valor_total': result[18],
+                        'estado': result[19]
+                    },
+                    
+                    # Resumen de pagos
+                    'resumen_pagos': {
+                        'total_pagos': result[20],
+                        'monto_pendiente': result[21],
+                        'monto_pagado': result[22],
+                        'estado_general': estado_general
+                    },
+                    
+                    # Resumen de cuotas
+                    'resumen_cuotas': {
+                        'total_cuotas': result[23],
+                        'cuotas_pendientes': result[24],
+                        'cuotas_pagadas': result[25],
+                        'cuotas_vencidas': result[26]
+                    },
+                    
+                    # Resumen de contribuciones
+                    'contribuciones': {
+                        'monto_alumno': result[27],
+                        'monto_empresa': result[28],
+                        'monto_sence': result[29]
+                    }
+                }
+            else:
+                print(f"No se encontró inscripción con ID {id_inscripcion}")
+                return None
+                
         except Exception as e:
-            print("Error al obtener pagos:", e)
-            results = []
+            print(f"Error al obtener detalles de inscripción: {e}")
+            return None
         finally:
             cursor.close()
             conn.close()
-        return results
-    return []
+    return None
 
-def insert_payment(id_inscripcion, tipo_pago, modalidad_pago, num_documento, 
-                   cuotas_totales, valor, estado, cuotas_pagadas):
-    """Inserta un nuevo pago."""
+# =======================================
+#             PAGOS
+# =======================================
+
+def fetch_payments():
+    """
+    Obtiene la lista de pagos con información detallada incluyendo inscripción y estado.
+    """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
             query = """
-                INSERT INTO Pagos 
-                (id_inscripcion, tipo_pago, modalidad_pago, num_documento,
-                 cuotas_totales, valor, estado, cuotas_pagadas)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                SELECT 
+                    p.id_pago,
+                    p.id_inscripcion,
+                    p.tipo_pago,
+                    p.modalidad_pago,
+                    p.fecha_inscripcion,
+                    p.fecha_final,
+                    p.num_cuotas,
+                    p.valor_total,
+                    p.estado,
+                    i.numero_acta,
+                    CONCAT(a.nombre, ' ', a.apellido) as nombre_alumno,
+                    c.nombre_curso
+                FROM pagos p
+                LEFT JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+                LEFT JOIN alumnos a ON i.id_alumno = a.rut
+                LEFT JOIN cursos c ON i.id_curso = c.id_curso
+                ORDER BY p.fecha_inscripcion DESC
             """
-            cursor.execute(query, (
-                id_inscripcion, tipo_pago, modalidad_pago, num_documento, 
-                cuotas_totales, valor, estado, cuotas_pagadas
-            ))
-            conn.commit()
+            cursor.execute(query)
+            results = cursor.fetchall()
+            return results
         except Exception as e:
-            print("Error al insertar pago:", e)
-            return False
+            print("Error al obtener pagos:", e)
+            return []
         finally:
             cursor.close()
             conn.close()
-        return True
-    return False
+    return []
 
-def fetch_payments_by_inscription(id_inscripcion):
-    """Obtiene los pagos asociados a una inscripción específica."""
+def insert_payment(id_inscripcion, tipo_pago, modalidad_pago, valor_total, num_cuotas=1):
+    """
+    Inserta un nuevo pago y genera las cuotas correspondientes si aplica.
+    """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
-            query = "SELECT * FROM Pagos WHERE id_inscripcion = %s"
-            cursor.execute(query, (id_inscripcion,))
-            results = cursor.fetchall()
+            # Insertar pago
+            query = """
+                INSERT INTO pagos 
+                (id_inscripcion, tipo_pago, modalidad_pago, fecha_inscripcion, 
+                num_cuotas, valor_total, estado)
+                VALUES (%s, %s, %s, NOW(), %s, %s, 'pendiente')
+            """
+            cursor.execute(query, (
+                id_inscripcion, tipo_pago, modalidad_pago, 
+                num_cuotas, valor_total
+            ))
+            
+            # Obtener el ID del pago recién insertado
+            id_pago = cursor.lastrowid
+            
+            # Si es pagaré, generar cuotas
+            if tipo_pago == 'pagare':
+                valor_cuota = valor_total / num_cuotas
+                for i in range(num_cuotas):
+                    query_cuota = """
+                        INSERT INTO cuotas 
+                        (id_pago, nro_cuota, valor_cuota, fecha_vencimiento, estado_cuota)
+                        VALUES (%s, %s, %s, DATE_ADD(NOW(), INTERVAL %s MONTH), 'pendiente')
+                    """
+                    cursor.execute(query_cuota, (
+                        id_pago, i+1, valor_cuota, i
+                    ))
+            
+            conn.commit()
+            return id_pago
         except Exception as e:
-            print("Error al obtener pagos por inscripción:", e)
-            results = []
+            print("Error al insertar pago:", e)
+            conn.rollback()
+            return None
         finally:
             cursor.close()
             conn.close()
-        return results
+    return None
+
+def insert_payment_contribution(id_pago, tipo_contribuyente, monto):
+    """
+    Registra una contribución al pago (SENCE, empresa o alumno).
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO contribuciones 
+                (id_pago, tipo_contribuyente, monto_contribuido)
+                VALUES (%s, %s, %s)
+            """
+            cursor.execute(query, (id_pago, tipo_contribuyente, monto))
+            conn.commit()
+            return True
+        except Exception as e:
+            print("Error al insertar contribución:", e)
+            conn.rollback()
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def update_payment_status(id_pago, nuevo_estado):
+    """
+    Actualiza el estado de un pago.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = "UPDATE pagos SET estado = %s WHERE id_pago = %s"
+            cursor.execute(query, (nuevo_estado, id_pago))
+            conn.commit()
+            return True
+        except Exception as e:
+            print("Error al actualizar estado del pago:", e)
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def register_quota_payment(id_cuota):
+    """
+    Registra el pago de una cuota y actualiza estado y fecha final si corresponde.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            # Actualizar estado de la cuota
+            query_cuota = """
+                UPDATE cuotas 
+                SET estado_cuota = 'pagada', 
+                    fecha_pago = NOW()
+                WHERE id_cuota = %s
+            """
+            cursor.execute(query_cuota, (id_cuota,))
+
+            # Verificar si todas las cuotas están pagadas
+            query_check = """
+                SELECT 
+                    p.id_pago,
+                    COUNT(c.id_cuota) as total_cuotas,
+                    SUM(CASE WHEN c.estado_cuota = 'pagada' THEN 1 ELSE 0 END) as cuotas_pagadas
+                FROM pagos p
+                JOIN cuotas c ON p.id_pago = c.id_pago
+                WHERE c.id_cuota = %s
+                GROUP BY p.id_pago
+            """
+            cursor.execute(query_check, (id_cuota,))
+            result = cursor.fetchone()
+            
+            # Si todas las cuotas están pagadas, actualizar estado del pago y fecha final
+            if result and result[1] == result[2]:  # total_cuotas == cuotas_pagadas
+                query_pago = """
+                    UPDATE pagos 
+                    SET estado = 'pagado',
+                        fecha_final = NOW()
+                    WHERE id_pago = %s
+                """
+                cursor.execute(query_pago, (result[0],))
+                
+                # Registrar en el log de pagos completados
+                query_log = """
+                    INSERT INTO log_pagos 
+                    (id_pago, tipo_evento, fecha_evento, descripcion)
+                    VALUES (%s, 'COMPLETADO', NOW(), 'Pago completado - todas las cuotas pagadas')
+                """
+                try:
+                    cursor.execute(query_log, (result[0],))
+                except:
+                    # Si la tabla de log no existe, continuamos sin error
+                    pass
+            
+            conn.commit()
+            return True
+        except Exception as e:
+            print("Error al registrar pago de cuota:", e)
+            conn.rollback()
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def get_payment_completion_info(id_pago):
+    """
+    Obtiene información sobre el estado de completitud del pago.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT 
+                    p.id_pago,
+                    p.valor_total,
+                    p.fecha_inscripcion,
+                    p.fecha_final,
+                    p.estado,
+                    COUNT(c.id_cuota) as total_cuotas,
+                    SUM(CASE WHEN c.estado_cuota = 'pagada' THEN 1 ELSE 0 END) as cuotas_pagadas,
+                    MIN(CASE WHEN c.estado_cuota = 'pendiente' 
+                        THEN c.fecha_vencimiento END) as proxima_cuota
+                FROM pagos p
+                LEFT JOIN cuotas c ON p.id_pago = c.id_pago
+                WHERE p.id_pago = %s
+                GROUP BY p.id_pago, p.valor_total, p.fecha_inscripcion, 
+                         p.fecha_final, p.estado
+            """
+            cursor.execute(query, (id_pago,))
+            result = cursor.fetchone()
+            
+            if result:
+                return {
+                    'id_pago': result[0],
+                    'valor_total': result[1],
+                    'fecha_inscripcion': result[2],
+                    'fecha_final': result[3],
+                    'estado': result[4],
+                    'total_cuotas': result[5],
+                    'cuotas_pagadas': result[6],
+                    'proxima_cuota': result[7]
+                }
+            return None
+        except Exception as e:
+            print("Error al obtener información de completitud:", e)
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    return None
+
+def get_payment_details(id_pago):
+    """
+    Obtiene los detalles completos de un pago incluyendo cuotas y contribuciones.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Obtener información del pago
+            query_pago = """
+                SELECT p.*, i.numero_acta, 
+                       CONCAT(a.nombre, ' ', a.apellido) as nombre_alumno,
+                       c.nombre_curso
+                FROM pagos p
+                LEFT JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+                LEFT JOIN alumnos a ON i.id_alumno = a.rut
+                LEFT JOIN cursos c ON i.id_curso = c.id_curso
+                WHERE p.id_pago = %s
+            """
+            cursor.execute(query_pago, (id_pago,))
+            pago = cursor.fetchone()
+            
+            # Obtener cuotas
+            query_cuotas = """
+                SELECT *
+                FROM cuotas
+                WHERE id_pago = %s
+                ORDER BY nro_cuota
+            """
+            cursor.execute(query_cuotas, (id_pago,))
+            cuotas = cursor.fetchall()
+            
+            # Obtener contribuciones
+            query_contribuciones = """
+                SELECT *
+                FROM contribuciones
+                WHERE id_pago = %s
+            """
+            cursor.execute(query_contribuciones, (id_pago,))
+            contribuciones = cursor.fetchall()
+            
+            return {
+                'pago': pago,
+                'cuotas': cuotas,
+                'contribuciones': contribuciones
+            }
+        except Exception as e:
+            print("Error al obtener detalles del pago:", e)
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    return None
+
+def cancel_payment(id_pago):
+    """
+    Cancela un pago y sus cuotas asociadas.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Actualizar estado del pago
+            query_pago = """
+                UPDATE pagos 
+                SET estado = 'cancelado',
+                    fecha_final = NOW()
+                WHERE id_pago = %s
+            """
+            cursor.execute(query_pago, (id_pago,))
+            
+            # Actualizar estado de las cuotas
+            query_cuotas = """
+                UPDATE cuotas 
+                SET estado_cuota = 'cancelado'
+                WHERE id_pago = %s
+                AND estado_cuota = 'pendiente'
+            """
+            cursor.execute(query_cuotas, (id_pago,))
+            
+            conn.commit()
+            return True
+        except Exception as e:
+            print("Error al cancelar pago:", e)
+            conn.rollback()
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def get_pending_quotas():
+    """
+    Obtiene todas las cuotas pendientes ordenadas por fecha de vencimiento.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT c.*, p.id_inscripcion, 
+                       CONCAT(a.nombre, ' ', a.apellido) as nombre_alumno,
+                       i.numero_acta
+                FROM cuotas c
+                JOIN pagos p ON c.id_pago = p.id_pago
+                JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+                JOIN alumnos a ON i.id_alumno = a.rut
+                WHERE c.estado_cuota = 'pendiente'
+                ORDER BY c.fecha_vencimiento
+            """
+            cursor.execute(query)
+            return cursor.fetchall()
+        except Exception as e:
+            print("Error al obtener cuotas pendientes:", e)
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
+def get_payment_summary_by_dates(fecha_inicio, fecha_fin):
+    """
+    Obtiene un resumen de pagos entre fechas específicas.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT 
+                    COUNT(*) as total_pagos,
+                    SUM(valor_total) as monto_total,
+                    SUM(CASE WHEN estado = 'pagado' THEN valor_total ELSE 0 END) as monto_pagado,
+                    SUM(CASE WHEN estado = 'pendiente' THEN valor_total ELSE 0 END) as monto_pendiente,
+                    COUNT(CASE WHEN tipo_pago = 'contado' THEN 1 END) as pagos_contado,
+                    COUNT(CASE WHEN tipo_pago = 'pagare' THEN 1 END) as pagos_pagare
+                FROM pagos
+                WHERE fecha_inscripcion BETWEEN %s AND %s
+            """
+            cursor.execute(query, (fecha_inicio, fecha_fin))
+            return cursor.fetchone()
+        except Exception as e:
+            print("Error al obtener resumen de pagos:", e)
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    return None
+
+def fetch_inscription_details(id_inscripcion):
+    """
+    Obtiene los detalles de una inscripción específica para la ventana de añadir pago.
+    
+    Args:
+        id_inscripcion: ID de la inscripción a buscar
+        
+    Returns:
+        dict: Diccionario con la información de la inscripción o None si no se encuentra
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    i.id_inscripcion,
+                    i.numero_acta,
+                    CONCAT(a.nombre, ' ', a.apellido) as nombre_alumno,
+                    c.nombre_curso,
+                    i.id_empresa,
+                    c.valor as valor_curso
+                FROM inscripciones i 
+                LEFT JOIN alumnos a ON i.id_alumno = a.rut
+                LEFT JOIN cursos c ON i.id_curso = c.id_curso
+                WHERE i.id_inscripcion = %s
+            """, (id_inscripcion,))
+            
+            result = cursor.fetchone()
+            
+            if result:
+                return {
+                    'id_inscripcion': result[0],
+                    'numero_acta': result[1],
+                    'nombre_alumno': result[2],
+                    'nombre_curso': result[3],
+                    'id_empresa': result[4],
+                    'valor_curso': result[5]
+                }
+            else:
+                print(f"No se encontró inscripción con ID {id_inscripcion}")
+                return None
+                
+        except Exception as e:
+            print(f"Error al obtener detalles de inscripción: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    return None
+
+def fetch_payments_by_inscription(id_inscripcion):
+    """
+    Obtiene todos los pagos asociados a una inscripción específica.
+    
+    Args:
+        id_inscripcion (int): ID de la inscripción a consultar
+        
+    Returns:
+        list: Lista de tuplas con la información de los pagos o lista vacía si no hay pagos
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    p.id_pago,
+                    p.tipo_pago,
+                    p.modalidad_pago,
+                    p.fecha_inscripcion,
+                    p.fecha_final,
+                    p.num_cuotas,
+                    p.valor_total,
+                    p.estado,
+                    -- Información de cuotas
+                    COUNT(c.id_cuota) as total_cuotas,
+                    SUM(CASE WHEN c.estado_cuota = 'pagada' THEN 1 ELSE 0 END) as cuotas_pagadas,
+                    -- Información de contribuciones
+                    GROUP_CONCAT(DISTINCT 
+                        CONCAT(co.tipo_contribuyente, ': $', co.monto_contribuido)
+                        SEPARATOR ' | '
+                    ) as detalle_contribuciones
+                FROM pagos p
+                LEFT JOIN cuotas c ON p.id_pago = c.id_pago
+                LEFT JOIN contribuciones co ON p.id_pago = co.id_pago
+                WHERE p.id_inscripcion = %s
+                GROUP BY 
+                    p.id_pago, p.tipo_pago, p.modalidad_pago,
+                    p.fecha_inscripcion, p.fecha_final,
+                    p.num_cuotas, p.valor_total, p.estado
+                ORDER BY p.fecha_inscripcion DESC
+            """, (id_inscripcion,))
+            
+            results = cursor.fetchall()
+            
+            if results:
+                print(f"Se encontraron {len(results)} pagos para la inscripción {id_inscripcion}")
+                # Formatear los resultados para la visualización
+                formatted_results = []
+                for row in results:
+                    # Formatear fechas y valores monetarios
+                    fecha_inscripcion = row[3].strftime('%Y-%m-%d') if row[3] else ''
+                    fecha_final = row[4].strftime('%Y-%m-%d') if row[4] else ''
+                    valor_total = f"${row[6]:,.0f}" if row[6] else '$0'
+                    
+                    formatted_row = [
+                        row[0],                    # ID Pago
+                        row[1].upper(),           # Tipo Pago
+                        row[2].upper(),           # Modalidad Pago
+                        valor_total,              # Valor Total
+                        row[7].upper(),           # Estado
+                        f"{row[9]}/{row[8]}",     # Cuotas Pagadas/Total
+                        fecha_inscripcion,        # Fecha Inscripción
+                        fecha_final,              # Fecha Final
+                        row[10] if row[10] else 'Sin contribuciones'  # Detalle contribuciones
+                    ]
+                    formatted_results.append(formatted_row)
+                return formatted_results
+            else:
+                print(f"No se encontraron pagos para la inscripción {id_inscripcion}")
+                return []
+                
+        except Exception as e:
+            print(f"Error al obtener pagos por inscripción: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
 # =======================================
 #             FACTURACIÓN
 # =======================================
@@ -1413,26 +2049,219 @@ def delete_contacto_empresa(conn, id_contacto):
         return False
 
 # =======================================
-#           AUTENTICACION 
+#           COTIZACIONES 
 # =======================================
 
-# queries.py
-def fetch_user_by_credentials(username, password):
-    """Obtiene un usuario por sus credenciales."""
+def fetch_cotizaciones():
+    """
+    Obtiene todas las cotizaciones con su información básica y cantidad total de cursos
+    """
     conn = connect_db()
     if conn:
         try:
-            # dictionary=True para obtener columnas como dict
-            cursor = conn.cursor(dictionary=True)
-            query = "SELECT * FROM usuarios WHERE username = %s AND password = %s"
-            cursor.execute(query, (username, password))
-            user = cursor.fetchone()
-            return user
+            cursor = conn.cursor()
+            query = """
+                SELECT 
+                    c.id_cotizacion,
+                    c.nombre_contacto,
+                    c.origen,
+                    c.fecha_cotizacion,
+                    c.fecha_vencimiento,
+                    c.email,
+                    c.modo_pago,
+                    COALESCE(SUM(dc.cantidad), 0) as cantidad_total_cursos
+                FROM cotizacion c
+                LEFT JOIN detalle_cotizacion dc ON c.id_cotizacion = dc.id_cotizacion
+                GROUP BY 
+                    c.id_cotizacion,
+                    c.nombre_contacto,
+                    c.origen,
+                    c.fecha_cotizacion,
+                    c.fecha_vencimiento,
+                    c.email,
+                    c.modo_pago
+                ORDER BY c.fecha_cotizacion DESC
+            """
+            cursor.execute(query)
+            return cursor.fetchall()
         except Exception as e:
-            print("Error al validar usuario:", e)
+            print(f"Error al obtener cotizaciones: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
+
+import mysql.connector
+from database.db_config import connect_db  # Asegúrate de tener esta conexión
+
+def insertar_cotizacion(fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto, email, modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva, detalles_cursos):
+    """
+    Inserta una nueva cotización en la tabla cotizacion y sus detalles en detalle_cotizacion.
+    """
+    conn = connect_db()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+
+        # Insertar en la tabla cotizacion
+        query_cotizacion = """
+        INSERT INTO cotizacion (
+            fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto, email,
+            modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(query_cotizacion, (
+            fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto, email,
+            modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva
+        ))
+        id_cotizacion = cursor.lastrowid  # Obtener el ID de la cotización insertada
+
+        # Insertar en la tabla detalle_cotizacion
+        query_detalle = """
+        INSERT INTO detalle_cotizacion (
+            id_cotizacion, id_curso, cantidad, valor_curso, valor_total
+        ) VALUES (%s, %s, %s, %s, %s)
+        """
+        for detalle in detalles_cursos:
+            cursor.execute(query_detalle, (
+                id_cotizacion, detalle["id_curso"], detalle["cantidad"],
+                detalle["valor_curso"], detalle["valor_total"]
+            ))
+
+        conn.commit()
+        return id_cotizacion  # Retorna el ID de la cotización generada
+
+    except mysql.connector.Error as e:
+        print(f"Error al insertar cotización: {e}")
+        conn.rollback()
+        return False
+    finally:
+        cursor.close()
+        conn.close()
+def insert_cotizacion(fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto, 
+                     email, modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva):
+    """
+    Inserta una nueva cotización en la base de datos.
+    Retorna el ID de la cotización creada.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO cotizacion (
+                    fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto,
+                    email, modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            values = (
+                fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto,
+                email, modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva
+            )
+            cursor.execute(query, values)
+            id_cotizacion = cursor.lastrowid
+            conn.commit()
+            return id_cotizacion
+        except Exception as e:
+            print(f"Error al insertar cotización: {e}")
+            conn.rollback()
             return None
         finally:
             cursor.close()
             conn.close()
     return None
+
+def insert_detalle_cotizacion(id_cotizacion, id_curso, cantidad, valor_curso, valor_total):
+    """
+    Inserta un detalle de cotización en la base de datos.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO detalle_cotizacion (
+                    id_cotizacion, id_curso, cantidad, valor_curso, valor_total
+                ) VALUES (%s, %s, %s, %s, %s)
+            """
+            values = (id_cotizacion, id_curso, cantidad, valor_curso, valor_total)
+            cursor.execute(query, values)
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error al insertar detalle de cotización: {e}")
+            conn.rollback()
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
+
+def get_cotizacion_details(id_cotizacion):
+    """
+    Obtiene los detalles completos de una cotización, incluyendo sus items.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Obtener la cotización
+            query_cotizacion = """
+                SELECT * FROM cotizacion WHERE id_cotizacion = %s
+            """
+            cursor.execute(query_cotizacion, (id_cotizacion,))
+            cotizacion = cursor.fetchone()
+            
+            # Obtener los detalles
+            query_detalles = """
+                SELECT d.*, c.nombre_curso 
+                FROM detalle_cotizacion d
+                JOIN cursos c ON d.id_curso = c.id_curso
+                WHERE d.id_cotizacion = %s
+            """
+            cursor.execute(query_detalles, (id_cotizacion,))
+            detalles = cursor.fetchall()
+            
+            return {
+                'cotizacion': cotizacion,
+                'detalles': detalles
+            }
+        except Exception as e:
+            print(f"Error al obtener detalles de cotización: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    return None
+
+# =======================================
+#           AUTENTICACION 
+# =======================================
+
+# queries.py
+def fetch_user_by_credentials(username, password):
+    """
+    Consulta las credenciales del usuario en la base de datos.
+    """
+    conn = connect_db()
+    try:
+        cursor = conn.cursor()
+        query = "SELECT username, rol FROM Usuarios WHERE username = %s AND password = %s"
+        cursor.execute(query, (username, password))
+        result = cursor.fetchone()
+        if result:
+            return {"username": result[0], "rol": result[1]}  # Devuelve un diccionario con username y rol
+        return None
+    except Exception as e:
+        print("Error al consultar credenciales:", e)
+        return None
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 

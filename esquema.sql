@@ -75,28 +75,59 @@ CREATE TABLE IF NOT EXISTS inscripciones (
 
 -- Tabla: Pagos
 -- Contiene la información de los pagos realizados por los alumnos o empresas.
+-- Tabla PAGOS (cabecera)
 CREATE TABLE IF NOT EXISTS pagos (
-    id_pago INT NOT NULL PRIMARY KEY,          -- Identificador único del pago.
-    id_inscripcion INT,                        -- Identificador de la inscripción asociada (relación con `inscripciones`).
-    tipo_pago ENUM('contado', 'pagaré') NOT NULL, -- Tipo de pago.
-    modalidad_pago ENUM('completo', 'diferido') NOT NULL, -- Modalidad del pago.
-    num_documento VARCHAR(50),                -- Número del documento del pago (opcional).
-    cuotas_totales INT,                       -- Número total de cuotas (opcional).
-    valor DECIMAL(10,2) NOT NULL,             -- Monto del pago.
-    estado TINYINT NOT NULL,                  -- Estado del pago (0 = pendiente, 1 = completado).
-    cuotas_pagadas INT,                       -- Número de cuotas pagadas (opcional).
-    FOREIGN KEY (id_inscripcion) REFERENCES inscripciones(id_inscripcion) -- Relación con la tabla `inscripciones`.
+    id_pago           INT AUTO_INCREMENT PRIMARY KEY,
+    id_inscripcion    INT NOT NULL,
+    tipo_pago         ENUM('contado', 'pagare') NOT NULL,
+    modalidad_pago    ENUM('completo', 'diferido') NOT NULL,
+    fecha_inscripcion DATETIME NOT NULL,
+    fecha_final       DATETIME NULL,
+    num_cuotas        TINYINT NOT NULL DEFAULT 1,
+    valor_total       DECIMAL(10,2) NOT NULL,
+    estado            ENUM('pendiente', 'pagado', 'cancelado') NOT NULL DEFAULT 'pendiente',
+    CONSTRAINT fk_pagos_inscripciones
+        FOREIGN KEY (id_inscripcion) 
+        REFERENCES inscripciones (id_inscripcion)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
 );
 
--- Tabla: PagosDetalle
--- Detalla las contribuciones específicas realizadas por los alumnos, empresas o SENCE.
-CREATE TABLE IF NOT EXISTS pagosdetalle (
-    id_pago INT NOT NULL,                       -- Identificador del pago (relación con `pagos`).
-    tipo_contribuyente ENUM('alumno', 'empresa', 'sence') NOT NULL, -- Tipo de contribuyente.
-    monto_contribuido DECIMAL(10,2) NOT NULL,  -- Monto aportado por el contribuyente.
-    PRIMARY KEY (id_pago, tipo_contribuyente), -- Llave primaria compuesta por el pago y tipo de contribuyente.
-    FOREIGN KEY (id_pago) REFERENCES pagos(id_pago) -- Relación con la tabla `pagos`.
+-- Tabla CUOTAS (detalle de pagos)
+CREATE TABLE IF NOT EXISTS cuotas (
+    id_cuota         INT AUTO_INCREMENT PRIMARY KEY,
+    id_pago          INT NOT NULL,
+    nro_cuota        TINYINT NOT NULL,
+    valor_cuota      DECIMAL(10,2) NOT NULL,
+    fecha_vencimiento DATETIME NOT NULL,
+    fecha_pago       DATETIME NULL,
+    estado_cuota     ENUM('pendiente', 'pagada', 'vencida') NOT NULL DEFAULT 'pendiente',
+    CONSTRAINT fk_cuotas_pagos
+        FOREIGN KEY (id_pago) 
+        REFERENCES pagos (id_pago)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
 );
+
+-- Tabla CONTRIBUCIONES (distribución del pago entre diferentes entidades)
+CREATE TABLE IF NOT EXISTS contribuciones (
+    id_contribucion    INT AUTO_INCREMENT PRIMARY KEY,
+    id_pago           INT NOT NULL,
+    tipo_contribuyente ENUM('alumno', 'empresa', 'sence') NOT NULL,
+    monto_contribuido DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_contribuciones_pagos
+        FOREIGN KEY (id_pago) 
+        REFERENCES pagos (id_pago)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT uk_contribucion_tipo
+        UNIQUE (id_pago, tipo_contribuyente)
+);
+
+-- Índices adicionales para optimizar consultas
+CREATE INDEX idx_pagos_inscripcion ON pagos (id_inscripcion);
+CREATE INDEX idx_cuotas_estado ON cuotas (estado_cuota);
+CREATE INDEX idx_pagos_estado ON pagos (estado);
 
 -- Tabla: Tramitaciones
 -- Contiene la información sobre trámites específicos realizados por los alumnos.
@@ -110,4 +141,30 @@ CREATE TABLE IF NOT EXISTS tramaticiones (
     estado TINYINT NOT NULL,                 -- Estado de la tramitación (0 = pendiente, 1 = completada).
     observacion TEXT,                        -- Observaciones adicionales sobre la tramitación (opcional).
     FOREIGN KEY (id_alumno) REFERENCES alumnos(rut) -- Relación con la tabla `alumnos`.
+);
+
+CREATE TABLE cotizacion (
+    id_cotizacion INT AUTO_INCREMENT PRIMARY KEY,
+    fecha_cotizacion DATE NOT NULL,
+    fecha_vencimiento DATE NOT NULL,
+    origen VARCHAR(255) NOT NULL, -- Particular o nombre de la empresa
+    nombre_contacto VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    modo_pago ENUM('Al Contado', 'Pagaré') NOT NULL,
+	metodo_pago varchar(20), 
+    num_cuotas INT DEFAULT NULL, -- Número de cuotas, aplicable solo para "Pagaré"
+    detalle TEXT, -- Opcional, descripción del servicio
+    total DECIMAL(10, 2) NOT NULL, -- Suma total de la cotización
+    valor_iva DECIMAL(10, 2) NOT NULL -- IVA calculado
+);
+
+CREATE TABLE detalle_cotizacion (
+    id_detalle INT AUTO_INCREMENT PRIMARY KEY,
+    id_cotizacion INT NOT NULL,
+    id_curso varchar(20) NOT NULL,
+    cantidad INT NOT NULL,
+    valor_curso DECIMAL(10, 2) NOT NULL,
+    valor_total DECIMAL(10, 2) NOT NULL,
+    FOREIGN KEY (id_cotizacion) REFERENCES cotizacion(id_cotizacion) ON DELETE CASCADE,
+    FOREIGN KEY (id_curso) REFERENCES cursos(id_curso)
 );

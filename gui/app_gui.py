@@ -8,6 +8,11 @@ from itertools import cycle  # <<--- Para el validador avanzado de RUT
 from .excel_export import ExcelExporter
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import base64
+import math
+from functools import wraps
+from tkcalendar import DateEntry
+from .cotizacion_window import CotizacionWindow
+
 
 # ============================
 #   Validador avanzado de RUT
@@ -40,32 +45,53 @@ def validar_rut(rut):
     # Cualquier otro dígito, comparamos con 11 - residuo
     return residuo == 11 - int(dv)
 
+def requiere_rol_gui(rol_permitido):
+    """
+    Decorador para verificar si el usuario tiene el rol permitido.
+    Muestra un mensaje de error en la GUI si no tiene permisos.
+    """
+    def decorador(func):
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            # Verificar el rol del usuario desde la instancia de la clase
+            if getattr(self, 'rol', None) != rol_permitido:
+                # Mostrar un mensaje de error en la GUI
+                messagebox.showerror(
+                    "Permiso Denegado",
+                    f"No tiene permiso para acceder a esta funcionalidad. Rol requerido: {rol_permitido}."
+                )
+                return  # No ejecuta la función si no tiene permisos
+            return func(self, *args, **kwargs)  # Ejecuta la función si tiene permisos
+        return wrapper
+    return decorador
 
 # --------------------------------------------------------------------
 #   IMPORTAR FUNCIONES DE LA BASE DE DATOS (queries.py o similares)
 # --------------------------------------------------------------------
 
 from database.queries import (
-    fetch_courses,insert_course,update_course,delete_course_by_id,                       #Cursos
+    fetch_courses,insert_course,update_course,delete_course_by_id,                                  #Cursos
     validate_curso_exists,get_course_duration,add_business_days,
 
 
-    fetch_courses_by_student_rut,fetch_all_students,insert_student,fetch_student_by_rut, #Alumnos
+    fetch_courses_by_student_rut,fetch_all_students,insert_student,fetch_student_by_rut,            #Alumnos
     delete_student_by_rut,fetch_students_by_name_apellido,validate_alumno_exists,
 
-    fetch_payments,insert_payment,fetch_payments_by_inscription,                         #Pagos
+    fetch_payments,insert_payment,fetch_payments_by_inscription,insert_payment_contribution,        #Pagos
+    update_payment_status,
 
-    insert_invoice,fetch_invoices,                                                       #Facturas
+    insert_invoice,fetch_invoices,                                                                  #Facturas
     
-    fetch_user_by_credentials,enroll_student,fetch_inscriptions,                         #Inscripciones
+    fetch_user_by_credentials,enroll_student,fetch_inscriptions,                                    #Inscripciones
     update_inscription,update_student,validate_duplicate_enrollment,
     format_inscription_data,delete_inscription,fetch_inscription_by_id,
-    get_course_duration, add_business_days,
+    get_course_duration, add_business_days,fetch_inscription_details,
 
-    get_empresa_by_name,get_or_create_empresa,register_new_empresa,fetch_all_empresas,   #Empresas
+    get_empresa_by_name,get_or_create_empresa,register_new_empresa,fetch_all_empresas,              #Empresas
     update_empresa,insert_empresa,fetch_contactos_by_empresa,fetch_empresa_by_rut,
-    insert_contacto_empresa,update_contacto_empresa,delete_contacto_empresa
-                     
+    insert_contacto_empresa,update_contacto_empresa,delete_contacto_empresa,
+
+    fetch_cotizaciones          
 )
 
 
@@ -109,9 +135,8 @@ class App:
         self.root.deiconify()
 
         # 5. Mostramos directamente el LoginFrame (o la interfaz principal)
-        self.show_login_frame()
-
-
+        #self.show_login_frame()
+        self.setup_main_interface()
     def setup_styles(self):
         """
         Configuración de estilos para toda la aplicación.
@@ -199,11 +224,16 @@ class App:
 
             user = fetch_user_by_credentials(username, password)
             if user:
-                # Si las credenciales son correctas
+                # Si las credenciales son correctas, almacenamos los datos del usuario
+                self.username = user.get("username")
+                self.rol = user.get("rol")  # Guardamos el rol del usuario
+                print(f"Usuario autenticado: {self.username}, Rol: {self.rol}")
+
+                # Ocultamos el login y mostramos la interfaz principal
                 self.login_frame.hide()
                 self.setup_main_interface()
             else:
-                messagebox.showerror("Error", "Credenciales inválidas revice la escritura.")
+                messagebox.showerror("Error", "Credenciales inválidas. Revise la escritura.")
 
         self.login_frame = LoginFrame(self.root, login_callback)
         self.root.bind('<Return>', lambda e: self.login_frame.handle_login())
@@ -308,6 +338,8 @@ class App:
         pagos_menu.add_command(label="Ver Pagos", command=self.show_payments)
         pagos_menu.add_command(label="Añadir Pago", command=self.add_payment_window)
         pagos_menu.add_command(label="Pagos por Inscripción", command=self.show_payments_by_inscription)
+        pagos_menu.add_command(label="Actualizar Estado", command=self.update_payment_status_window)
+        #pagos_menu.add_command(label="Actualizar Cuotas", command=self.update_payment_contribution_window)
         menubar.add_cascade(label="Pagos", menu=pagos_menu)
 
         # Menú Facturación
@@ -323,7 +355,9 @@ class App:
 
         # Menú Cotizaciones
         cotizaciones_menu = tk.Menu(menubar, tearoff=0)
-        # menubar.add_cascade(label="Cotizaciones", menu=cotizaciones_menu)
+        cotizaciones_menu.add_command(label="Ver Cotizaciones", command=self.show_cotizaciones)
+        cotizaciones_menu.add_command(label="Generar Cotizacion", command=self.show_cotizacion_window)
+        menubar.add_cascade(label="Cotizaciones", menu=cotizaciones_menu)
 
         # Menú empresas
         empresas_menu = tk.Menu(menubar, tearoff=0)
@@ -361,6 +395,18 @@ class App:
         self.tree.tag_configure('oddrow', background='#f5f5f5')
         self.tree.tag_configure('evenrow', background='#ffffff')
 
+        # Crear menú contextual
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
+        self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Cancelar", command=self.context_menu.unpost)
+
+        # Vincular eventos
+        self.tree.bind("<Button-3>", self._show_context_menu)  # Clic derecho
+        self.tree.bind("<Control-c>", lambda e: self._copy_selected_cell())  # Ctrl+C
+        self.tree.bind("<Control-r>", lambda e: self._copy_selected_row())   # Ctrl+R
+
     def _update_title_label(self, text):
         """
         Actualiza el texto del título.
@@ -371,18 +417,60 @@ class App:
         if self.title_label:
             self.title_label.config(text=text)
 
-    def _copy_cell_to_clipboard(self, event):
-        region = self.tree.identify("region", event.x, event.y)
-        if region == "cell":
-            row_id = self.tree.identify_row(event.y)
-            col_id = self.tree.identify_column(event.x)
-            if row_id and col_id:
-                item = self.tree.item(row_id)
-                col_index = int(col_id.replace("#", "")) - 1
-                cell_value = item["values"][col_index]
-                self.root.clipboard_clear()
-                self.root.clipboard_append(str(cell_value))
-                messagebox.showinfo("Copiado", f"Copiado al portapapeles:\n{cell_value}")
+    def _show_context_menu(self, event):
+        """Muestra el menú contextual en la posición del clic"""
+        try:
+            self.tree.selection_set(self.tree.identify_row(event.y))
+            self.context_menu.post(event.x_root, event.y_root)
+            return "break"
+        except:
+            pass
+
+    def _copy_selected_cell(self):
+        """Copia el contenido de la celda seleccionada"""
+        try:
+            selection = self.tree.selection()
+            if not selection:
+                return
+
+            # Obtener la columna seleccionada o usar la primera
+            column = self.tree.identify_column(self.tree.winfo_pointerx() - self.tree.winfo_rootx())
+            if not column:
+                column = '#1'
+
+            col_id = int(str(column).replace('#', '')) - 1
+            cell_value = self.tree.item(selection[0])['values'][col_id]
+
+            # Copiar al portapapeles
+            self.root.clipboard_clear()
+            self.root.clipboard_append(str(cell_value))
+
+            # Mostrar mensaje de éxito
+            messagebox.showinfo("Copiado", f"Valor copiado al portapapeles:\n{cell_value}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo copiar el valor: {str(e)}")
+
+    def _copy_selected_row(self):
+        """Copia toda la fila seleccionada"""
+        try:
+            selection = self.tree.selection()
+            if not selection:
+                return
+
+            # Obtener valores de la fila
+            row_values = self.tree.item(selection[0])['values']
+            
+            # Convertir a texto con tabulaciones
+            row_text = '\t'.join(str(value) for value in row_values)
+            
+            # Copiar al portapapeles
+            self.root.clipboard_clear()
+            self.root.clipboard_append(row_text)
+            
+            # Mostrar mensaje de éxito
+            messagebox.showinfo("Copiado", "Fila completa copiada al portapapeles")
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo copiar la fila: {str(e)}")
 
     def _populate_tree(self, columns, headers, data):
         self.tree.delete(*self.tree.get_children())
@@ -409,6 +497,7 @@ class App:
             tag = 'evenrow' if i % 2 == 0 else 'oddrow'
             self.tree.insert("", "end", values=row, tags=(tag,))
 
+
     # =================================================================
     #  INSCRIPCIONES (se muestran al iniciar)
     # =================================================================
@@ -418,20 +507,20 @@ class App:
                 print("Error: tree no está inicializado")
                 return
                     
-            # Actualizar el título primero
+            # Actualizar el título
             self._update_title_label("Listado de Inscripciones")
                     
             # Definir las columnas y headers
             columns = (
                 "ID", "N_Acta", "RUT", "Nombre_Completo",
                 "ID_Curso", "F_Inscripcion", "F_Termino",
-                "Año", "Metodo", "Empresa", "Codigo_Sence", "Folio"
+                "Año", "Empresa", "Codigo_Sence", "Folio", "Estado_Pago"
             )
                 
             headers = (
                 "ID", "N° Acta", "RUT", "Nombre Completo",
-                "ID Curso", "F. Inscripción", "F. Término",
-                "Año", "Método", "Empresa", "Código SENCE", "Folio"
+                "Curso", "F. Inscripción", "F. Término",
+                "Año", "Empresa", "Código SENCE", "Folio", "Estado"
             )
 
             # Obtener datos y formatearlos
@@ -451,10 +540,10 @@ class App:
                             formatted.get("F_Inscripcion", ""),
                             formatted.get("F_Termino", ""),
                             formatted.get("Año", ""),
-                            formatted.get("Metodo", ""),
                             formatted.get("Empresa", ""),
                             formatted.get("Codigo_Sence", ""),
-                            formatted.get("Folio", "")
+                            formatted.get("Folio", ""),
+                            formatted.get("Estado_Pago", "SIN PROCESAR")
                         ]
                         formatted_data.append(row)
                 
@@ -462,28 +551,58 @@ class App:
             self.tree.delete(*self.tree.get_children())
             self.tree.config(columns=columns, show="headings")
                 
-            # Configurar encabezados y columnas
+            # Configurar encabezados y columnas con anchos optimizados
+            column_widths = {
+                "ID": 50,                  # IDs suelen ser cortos
+                "N_Acta": 60,             # Números de acta suelen ser cortos
+                "RUT": 90,                # RUT chileno tiene largo fijo
+                "Nombre_Completo": 200,    # Nombres necesitan espacio razonable
+                "ID_Curso": 90,           # Códigos de curso suelen ser cortos
+                "F_Inscripcion": 90,      # Fechas tienen largo fijo
+                "F_Termino": 90,          # Fechas tienen largo fijo
+                "Año": 50,                # Año es muy corto
+                "Empresa": 150,           # Nombres de empresa pueden variar
+                "Codigo_Sence": 100,      # Códigos SENCE son números
+                "Folio": 60,              # Folios suelen ser cortos
+                "Estado_Pago": 90         # Estados son palabras cortas
+            }
+
+            # Aplicar configuración de columnas
             for column, header in zip(columns, headers):
                 self.tree.heading(column, text=header, anchor=tk.CENTER)
-                # Ajustar anchos según el tipo de columna
-                if column in ["Nombre_Completo", "Empresa"]:
-                    width = 200
-                elif column in ["ID", "Año"]:
-                    width = 70
-                elif column in ["N_Acta"]:
-                    width = 80
-                else:
-                    width = 100
+                width = column_widths.get(column, 100)
                 self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
                 
-            # Insertar datos si existen
+            # Insertar datos y aplicar colores según el estado
             for item in formatted_data:
-                self.tree.insert("", "end", values=item)
+                estado = item[-1]  # El estado es la última columna
+                tag = self._get_estado_tag(estado)
+                item_id = self.tree.insert("", "end", values=item, tags=(tag,))
+                
+            # Configurar colores para los diferentes estados
+            self.tree.tag_configure('pendiente', background='#FFF3CD')    # Amarillo claro
+            self.tree.tag_configure('pagado', background='#D4EDDA')       # Verde claro
+            self.tree.tag_configure('cancelado', background='#F8D7DA')    # Rojo claro
+            self.tree.tag_configure('sin_procesar', background='#E2E3E5') # Gris claro
                     
         except Exception as e:
             print(f"Error al mostrar inscripciones: {e}")
             import traceback
             traceback.print_exc()
+
+    def _get_estado_tag(self, estado):
+        """
+        Determina el tag de color según el estado del pago
+        """
+        estado = estado.lower()
+        if estado == 'pendiente':
+            return 'pendiente'
+        elif estado == 'pagado':
+            return 'pagado'
+        elif estado == 'cancelado':
+            return 'cancelado'
+        else:  # 'SIN PROCESAR'
+            return 'sin_procesar'
 
     def enroll_student_window(self):
         enroll_window = tk.Toplevel(self.root)
@@ -847,6 +966,7 @@ class App:
             command=save_enrollment
         ).pack()
  
+    #@requiere_rol_gui("admin")
     def delete_inscription_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Inscripción")
@@ -971,6 +1091,7 @@ class App:
             command=delete_window.destroy
         ).pack(side=tk.LEFT, padx=5)
     
+    #@requiere_rol_gui("admin")
     def update_inscription_window(self):
         window = tk.Toplevel(self.root)
         window.title("Actualizar Inscripción")
@@ -979,7 +1100,7 @@ class App:
         window.focus_force()
 
         # Configuración de la ventana
-        width, height = 800, 600
+        width, height = 800, 450
         scr_w = window.winfo_screenwidth()
         scr_h = window.winfo_screenheight()
         x = (scr_w // 2) - (width // 2)
@@ -1197,8 +1318,10 @@ class App:
     # ---------------------------------------------------
     #                 CURSOS
     # ---------------------------------------------------
+
     def show_courses(self):
         courses = fetch_courses()
+
         columns = (
             "id_curso",
             "nombre_curso",
@@ -1208,7 +1331,12 @@ class App:
             "horas_cronologicas",
             "horas_pedagogicas",
             "valor",
-            "duracionDias"
+            "duracionDias",
+            "tipo_curso",
+            "resolucion",
+            "fecha_resolucion",
+            "fecha_vigencia",
+            "valor_alumno_sence"
         )
         headers = (
             "ID",
@@ -1219,110 +1347,129 @@ class App:
             "Hrs. Cron.",
             "Hrs. Pedag.",
             "Valor",
-            "Duración (días)"
+            "Duración (días)",
+            "Tipo de Curso",
+            "Resolución",
+            "Fecha Resolución",
+            "Fecha Vigencia",
+            "Valor Alumno SENCE"
         )
+
         self._update_title_label("Listado de Cursos")
         self._populate_tree(columns, headers, courses)
 
-        # Ajustar anchos de columna específicamente para cursos si es necesario
+        # Ajustar anchos de columna dinámicamente
         if hasattr(self, 'tree'):
-            # Columnas que necesitan más espacio
-            self.tree.column("nombre_curso", width=300)  # Nombre más ancho
-            self.tree.column("modalidad", width=100)
-            self.tree.column("id_curso", width=80)
-            self.tree.column("codigo_sence", width=100)
-            self.tree.column("codigo_elearning", width=100)
-            self.tree.column("horas_cronologicas", width=80)
-            self.tree.column("horas_pedagogicas", width=80)
-            self.tree.column("valor", width=100)
-            self.tree.column("duracionDias", width=100)
+            self.tree.column("id_curso", width=80, stretch=False)
+            self.tree.column("nombre_curso", width=250, stretch=True)
+            self.tree.column("modalidad", width=100, stretch=False)
+            self.tree.column("codigo_sence", width=120, stretch=False)
+            self.tree.column("codigo_elearning", width=120, stretch=False)
+            self.tree.column("horas_cronologicas", width=100, stretch=False)
+            self.tree.column("horas_pedagogicas", width=100, stretch=False)
+            self.tree.column("valor", width=120, stretch=False)
+            self.tree.column("duracionDias", width=120, stretch=False)
+            self.tree.column("tipo_curso", width=150, stretch=False)
+            self.tree.column("resolucion", width=150, stretch=False)
+            self.tree.column("fecha_resolucion", width=120, stretch=False)
+            self.tree.column("fecha_vigencia", width=120, stretch=False)
+            self.tree.column("valor_alumno_sence", width=150, stretch=False)
 
+        # Configurar scroll horizontal si es necesario
+        if hasattr(self, 'tree_scroll_horizontal'):
+            self.tree_scroll_horizontal.pack(side=tk.BOTTOM, fill=tk.X)
+            self.tree.configure(xscrollcommand=self.tree_scroll_horizontal.set)
+    
+    #@requiere_rol_gui("admin")
     def add_course_window(self):
         """
-        Ventana modernizada para añadir un nuevo curso.
-        Layout mejorado con diseño en dos columnas.
+        Ventana para añadir un nuevo curso, ajustada con el campo 'Valor' y sin fondo blanco.
         """
         window = tk.Toplevel(self.root)
         window.title("Añadir Curso")
         window.configure(bg="#f0f5ff")
-        window.grab_set()  # Hace la ventana modal
+        window.grab_set()
         window.focus_force()
+        try:
+            window.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar ícono: {e}")
 
-        # Configuración de la ventana
-        width, height = 800, 500  # Aumenté un poco el height para el nuevo campo
+        # Dimensiones y posición de la ventana
+        width, height = 1000, 500  # Ajuste de tamaño
         scr_w = window.winfo_screenwidth()
         scr_h = window.winfo_screenheight()
         x = (scr_w // 2) - (width // 2)
         y = (scr_h // 2) - (height // 2)
         window.geometry(f"{width}x{height}+{x}+{y}")
 
-        try:
-            window.iconbitmap('assets/logo1.ico')
-        except Exception as e:
-            print(f"Error al cargar ícono: {e}")
-
         # Frame principal
         main_frame = tk.Frame(window, bg="#f0f5ff", padx=30, pady=20)
-        main_frame.pack(fill='both', expand=True)
-
-        # Título
-        title_label = tk.Label(
-            main_frame,
-            text="Registrar Nuevo Curso",
-            font=("Helvetica", 16, "bold"),
-            bg="#f0f5ff",
-            fg="#022e86"
-        )
-        title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
+        main_frame.pack(fill="both", expand=True)
 
         # Variables
         id_var = tk.StringVar()
         nombre_var = tk.StringVar()
-        modalidad_var = tk.StringVar()
+        modalidad_var = tk.StringVar(value="Presencial")  # Valor por defecto
+        tipo_curso_var = tk.StringVar(value="FORMACION")  # Valor por defecto
         sence_var = tk.StringVar()
         elearn_var = tk.StringVar()
         horas_cron_var = tk.StringVar()
-        horas_pedag_var = tk.StringVar()
-        valor_var = tk.StringVar()
-        duracion_dias_var = tk.StringVar()  # Nueva variable
+        valor_var = tk.StringVar()  # Nueva variable para 'Valor'
+        duracion_dias_var = tk.StringVar()
+        resolucion_var = tk.StringVar()
+        valor_alumno_sence_var = tk.StringVar()
 
-        def create_label_entry(parent, label_text, row, col, var=None, width=35):
-            label = tk.Label(
-                parent,
-                text=label_text,
-                bg="#f0f5ff",
-                fg="#022e86",
-                font=("Helvetica", 10),
-                anchor='e'
-            )
-            label.grid(row=row, column=col, padx=(10, 5), pady=10, sticky='e')
-            
-            entry = tk.Entry(
-                parent,
-                width=width,
-                font=("Helvetica", 10),
-                relief="solid",
-                bd=1,
-                textvariable=var
-            )
-            entry.grid(row=row, column=col+1, padx=(0, 20), pady=10, sticky='w')
-            return entry
+        # Opciones ENUM
+        modalidades = ["Presencial", "Online", "Híbrido"]
+        tipos_curso = ["FORMACION", "COMPETENCIA"]
 
-        # Configurar el grid
-        main_frame.grid_columnconfigure(1, weight=1)
-        main_frame.grid_columnconfigure(3, weight=1)
+        # Función para crear etiquetas y entradas
+        def create_label_entry(parent, label_text, row, col, var=None, width=40, is_date=False, is_option=False, options=None):
+            label = tk.Label(parent, text=label_text, bg="#f0f5ff", fg="#022e86", font=("Helvetica", 10), anchor="e")
+            label.grid(row=row, column=col, padx=(10, 5), pady=10, sticky="e")
 
-        # Primera columna de campos
+            if is_date:
+                # Usa DateEntry para seleccionar fechas
+                entry = DateEntry(
+                    parent,
+                    width=width // 2,
+                    font=("Helvetica", 10),
+                    relief="solid",
+                    bd=1,
+                    date_pattern="yyyy-mm-dd",  # Formato de fecha
+                    background="darkblue",
+                    foreground="white",
+                    borderwidth=2
+                )
+                entry.grid(row=row, column=col + 1, padx=(0, 20), pady=10, sticky="w")
+                return entry
+            elif is_option:
+                entry = tk.OptionMenu(parent, var, *options)
+                entry.config(width=20, font=("Helvetica", 10))
+                entry.grid(row=row, column=col + 1, padx=(0, 20), pady=10, sticky="w")
+                return entry
+            else:
+                entry = tk.Entry(parent, width=width, font=("Helvetica", 10), relief="solid", bd=1, textvariable=var)
+                entry.grid(row=row, column=col + 1, padx=(0, 20), pady=10, sticky="w")
+                return entry
+
+        # Configurar campos
         create_label_entry(main_frame, "ID del Curso:", 1, 0, id_var)
         create_label_entry(main_frame, "Nombre:", 2, 0, nombre_var)
-        create_label_entry(main_frame, "Modalidad:", 3, 0, modalidad_var)
+        create_label_entry(main_frame, "Modalidad:", 3, 0, modalidad_var, is_option=True, options=modalidades)
         create_label_entry(main_frame, "Código SENCE:", 4, 0, sence_var)
-        create_label_entry(main_frame, "Duración (días):", 5, 0, duracion_dias_var)  # Nuevo campo
+        create_label_entry(main_frame, "Duración (días):", 5, 0, duracion_dias_var)
+        create_label_entry(main_frame, "Tipo de Curso:", 6, 0, tipo_curso_var, is_option=True, options=tipos_curso)
+        create_label_entry(main_frame, "Valor del Curso:", 7, 0, valor_var)  # Campo para Valor
 
-        # Segunda columna de campos
         create_label_entry(main_frame, "Código eLearning:", 1, 2, elearn_var)
         create_label_entry(main_frame, "Horas Cronológicas:", 2, 2, horas_cron_var)
-        
+        create_label_entry(main_frame, "Resolución:", 3, 2, resolucion_var)
+        fecha_resolucion_entry = create_label_entry(main_frame, "Fecha Resolución:", 4, 2, is_date=True)
+        fecha_vigencia_entry = create_label_entry(main_frame, "Fecha Vigencia:", 5, 2, is_date=True)
+        create_label_entry(main_frame, "Valor por Alumno SENCE:", 6, 2, valor_alumno_sence_var)
+
         # Label para horas pedagógicas (calculado automáticamente)
         horas_pedag_label = tk.Label(
             main_frame,
@@ -1331,9 +1478,7 @@ class App:
             fg="#022e86",
             font=("Helvetica", 10)
         )
-        horas_pedag_label.grid(row=3, column=2, columnspan=2, padx=(0, 20), pady=10, sticky='w')
-
-        create_label_entry(main_frame, "Valor del Curso:", 4, 2, valor_var)
+        horas_pedag_label.grid(row=8, column=0, columnspan=4, pady=10)
 
         def calculate_horas_pedagogicas(*args):
             try:
@@ -1350,17 +1495,22 @@ class App:
             id_curso = id_var.get().strip()
             nombre_curso = nombre_var.get().strip()
             modalidad = modalidad_var.get().strip()
+            tipo_curso = tipo_curso_var.get().strip()
             sence_text = sence_var.get().strip()
             elearn_text = elearn_var.get().strip()
             horas_cron_text = horas_cron_var.get().strip()
             valor_text = valor_var.get().strip()
-            duracion_dias_text = duracion_dias_var.get().strip()  # Nuevo campo
+            duracion_dias_text = duracion_dias_var.get().strip()
+            resolucion = resolucion_var.get().strip()
+            fecha_resolucion = fecha_resolucion_entry.get()
+            fecha_vigencia = fecha_vigencia_entry.get()
+            valor_alumno_sence_text = valor_alumno_sence_var.get().strip()
 
             # Validaciones
-            if not id_curso or not nombre_curso or not modalidad:
+            if not id_curso or not nombre_curso or not modalidad or not tipo_curso:
                 messagebox.showwarning(
                     "Campos requeridos",
-                    "El ID del Curso, el Nombre y la Modalidad son obligatorios.",
+                    "Los campos ID del Curso, Nombre, Modalidad y Tipo de Curso son obligatorios.",
                     parent=window
                 )
                 return
@@ -1371,46 +1521,33 @@ class App:
                 codigo_elearn = int(elearn_text) if elearn_text else None
                 horas_cron = float(horas_cron_text) if horas_cron_text else None
                 valor_curso = float(valor_text) if valor_text else None
-                duracion_dias = int(duracion_dias_text) if duracion_dias_text else None  # Nuevo campo
+                duracion_dias = int(duracion_dias_text) if duracion_dias_text else None
+                valor_alumno_sence = float(valor_alumno_sence_text) if valor_alumno_sence_text else None
             except ValueError:
                 messagebox.showerror(
                     "Error",
-                    "Por favor, verifique los campos numéricos:\n" +
-                    "- Código SENCE: debe ser número entero\n" +
-                    "- Código eLearning: debe ser número entero\n" +
-                    "- Horas Cronológicas: debe ser número decimal\n" +
-                    "- Valor: debe ser número decimal\n" +
-                    "- Duración: debe ser número entero",  # Nueva validación
+                    "Por favor, verifica los campos numéricos.",
                     parent=window
                 )
                 return
 
-            # Guardar curso
+            # Guardar curso (llama a tu función insert_course)
             success = insert_course(
-                id_curso=id_curso,
-                nombre_curso=nombre_curso,
-                modalidad=modalidad,
-                codigo_sence=codigo_sence,
-                codigo_elearning=codigo_elearn,
-                horas_cronologicas=horas_cron,
-                valor=valor_curso,
-                duracionDias=duracion_dias  # Nuevo campo
+                id_curso, nombre_curso, modalidad, codigo_sence, codigo_elearn,
+                horas_cron, valor_curso, duracion_dias, tipo_curso, resolucion,
+                fecha_resolucion, fecha_vigencia, valor_alumno_sence
             )
 
             if success:
                 messagebox.showinfo("Éxito", "Curso añadido correctamente.", parent=window)
-                self.show_courses()  # Actualizar la vista de cursos
+                self.show_courses()  # Actualiza la vista
                 window.destroy()
             else:
                 messagebox.showerror("Error", "No se pudo añadir el curso.", parent=window)
 
-        # Frame para botones
-        button_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        button_frame.grid(row=6, column=0, columnspan=4, pady=30)  # Actualizado el row
-
-        # Botón de guardar
-        tk.Button(
-            button_frame,
+        # Botón para guardar
+        save_button = tk.Button(
+            main_frame,
             text="Guardar Curso",
             bg="#022e86",
             fg="white",
@@ -1420,33 +1557,28 @@ class App:
             pady=10,
             cursor="hand2",
             command=save_course
-        ).pack()
+        )
+        save_button.grid(row=9, column=0, columnspan=4, pady=30)
 
+    #@requiere_rol_gui("admin")
     def edit_course_window(self):
-        """
-        Ventana modernizada para editar un curso existente.
-        Layout mejorado con diseño en dos columnas.
-        """
         window = tk.Toplevel(self.root)
         window.title("Editar Curso")
+        window.geometry("900x500")
+        scr_w = window.winfo_screenwidth()
+        scr_h = window.winfo_screenheight()
+        x = (scr_w // 2) - (900 // 2)
+        y = (scr_h // 2) - (500 // 2)
+        window.geometry(f"{900}x{500}+{x}+{y}")
         window.configure(bg="#f0f5ff")
         window.grab_set()
         window.focus_force()
-
-        # Configuración de la ventana
-        width, height = 800, 500  # Aumentado height para nuevo campo
-        scr_w = window.winfo_screenwidth()
-        scr_h = window.winfo_screenheight()
-        x = (scr_w // 2) - (width // 2)
-        y = (scr_h // 2) - (height // 2)
-        window.geometry(f"{width}x{height}+{x}+{y}")
 
         try:
             window.iconbitmap('assets/logo1.ico')
         except Exception as e:
             print(f"Error al cargar ícono: {e}")
 
-        # Frame principal
         main_frame = tk.Frame(window, bg="#f0f5ff", padx=30, pady=20)
         main_frame.pack(fill='both', expand=True)
 
@@ -1460,15 +1592,20 @@ class App:
         )
         title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
 
-        # Variables
+        # Variables con nombres corregidos
         nombre_var = tk.StringVar()
         modalidad_var = tk.StringVar()
-        sence_var = tk.StringVar()
-        elearning_var = tk.StringVar()
-        horas_cron_var = tk.StringVar()
-        horas_pedag_var = tk.StringVar()
+        codigo_sence_var = tk.StringVar()
+        codigo_elearning_var = tk.StringVar()
+        horas_cronologicas_var = tk.StringVar()
+        horas_pedagogicas_var = tk.StringVar()
+        duracion_dias_var = tk.StringVar()
+        tipo_curso_var = tk.StringVar()
+        resolucion_var = tk.StringVar()
+        fecha_resolucion_var = tk.StringVar()
+        fecha_vigencia_var = tk.StringVar()
         valor_var = tk.StringVar()
-        duracion_dias_var = tk.StringVar()  # Nueva variable
+        valor_alumno_sence_var = tk.StringVar()
 
         # Frame para búsqueda de ID
         search_frame = tk.Frame(main_frame, bg="#f0f5ff")
@@ -1491,64 +1628,59 @@ class App:
         )
         id_entry.pack(side='left', padx=5)
 
-        def create_label_entry(parent, label_text, row, col, var=None, width=35):
-            label = tk.Label(
-                parent,
-                text=label_text,
-                bg="#f0f5ff",
-                fg="#022e86",
-                font=("Helvetica", 10),
-                anchor='e'
-            )
-            label.grid(row=row, column=col, padx=(10, 5), pady=10, sticky='e')
-            
-            entry = tk.Entry(
-                parent,
-                width=width,
-                font=("Helvetica", 10),
-                relief="solid",
-                bd=1,
-                textvariable=var
-            )
-            entry.grid(row=row, column=col+1, padx=(0, 20), pady=10, sticky='w')
-            return entry
-
         def load_course_data():
             id_curso = id_entry.get().strip()
             if not id_curso:
                 messagebox.showwarning("Error", "Debe ingresar un ID de curso.", parent=window)
                 return
 
-            course = None
             try:
                 conn = connect_db()
                 if conn:
                     cursor = conn.cursor()
-                    cursor.execute("SELECT * FROM Cursos WHERE id_curso = %s", (id_curso,))
+                    cursor.execute("""
+                        SELECT nombre_curso, modalidad, codigo_sence, codigo_elearning,
+                            horas_cronologicas, horas_pedagogicas, duracionDias, tipo_curso,
+                            resolucion, fecha_resolucion, fecha_vigencia, valor, valor_alumno_sence
+                        FROM cursos WHERE id_curso = %s
+                    """, (id_curso,))
                     course = cursor.fetchone()
                     cursor.close()
                     conn.close()
+
+                    if course:
+                        nombre_var.set(course[0] or "")
+                        modalidad_var.set(course[1] or "")
+                        codigo_sence_var.set(str(course[2]) if course[2] is not None else "")
+                        codigo_elearning_var.set(str(course[3]) if course[3] is not None else "")
+                        horas_cronologicas_var.set(str(course[4]) if course[4] is not None else "")
+                        horas_pedagogicas_var.set(str(course[5]) if course[5] is not None else "")
+                        duracion_dias_var.set(str(course[6]) if course[6] is not None else "")
+                        tipo_curso_var.set(course[7] or "")
+                        resolucion_var.set(course[8] or "")
+                        
+                        # Convertir fechas al formato dd/mm/aaaa
+                        def format_date(date_str):
+                            if date_str:
+                                try:
+                                    fecha = datetime.strptime(str(date_str), '%Y-%m-%d')
+                                    return fecha.strftime('%d/%m/%Y')
+                                except:
+                                    return "dd/mm/aaaa"
+                            return "dd/mm/aaaa"
+
+                        fecha_resolucion_var.set(format_date(course[9]))
+                        fecha_vigencia_var.set(format_date(course[10]))
+                        valor_var.set(str(course[11]) if course[11] is not None else "")
+                        valor_alumno_sence_var.set(str(course[12]) if course[12] is not None else "")
+                    else:
+                        messagebox.showerror("Error", f"No se encontró el curso con ID: {id_curso}", parent=window)
+
             except Exception as e:
                 print("Error al buscar el curso:", e)
                 messagebox.showerror("Error", "Error al buscar el curso en la base de datos.", parent=window)
-                return
 
-            if course:
-                nombre_var.set(course[1] or "")
-                modalidad_var.set(course[2] or "")
-                sence_var.set(str(course[3]) if course[3] is not None else "")
-                elearning_var.set(str(course[4]) if course[4] is not None else "")
-                horas_cron_var.set(str(course[5]) if course[5] is not None else "")
-                horas_pedag_var.set(str(course[6]) if course[6] is not None else "")
-                valor_var.set(str(course[7]) if course[7] is not None else "")
-                duracion_dias_var.set(str(course[8]) if course[8] is not None else "")  # Nuevo campo
-                
-                # Actualizar campos
-                calculate_horas_pedagogicas()
-            else:
-                messagebox.showerror("Error", f"No se encontró el curso con ID: {id_curso}", parent=window)
-
-        # Botón de búsqueda con estilo mejorado
+        # Botón de búsqueda
         tk.Button(
             search_frame,
             text="Buscar",
@@ -1562,43 +1694,88 @@ class App:
             command=load_course_data
         ).pack(side='left', padx=5)
 
-        # Configurar el grid
-        main_frame.grid_columnconfigure(1, weight=1)
-        main_frame.grid_columnconfigure(3, weight=1)
+        # Crear campos del formulario
+        def create_label_entry(parent, label_text, row, col, var):
+            tk.Label(
+                parent,
+                text=label_text,
+                bg="#f0f5ff",
+                fg="#022e86",
+                font=("Helvetica", 10),
+                anchor='e'
+            ).grid(row=row, column=col, padx=(10, 5), pady=10, sticky='e')
+            
+            if label_text == "Modalidad:":
+                widget = ttk.Combobox(
+                    parent,
+                    values=["Presencial", "Online", "Híbrido"],
+                    width=33,
+                    font=("Helvetica", 10),
+                    state="readonly",
+                    textvariable=var
+                )
+            elif label_text == "Tipo Curso:":
+                widget = ttk.Combobox(
+                    parent,
+                    values=["FORMACION", "COMPETENCIA"],
+                    width=33,
+                    font=("Helvetica", 10),
+                    state="readonly",
+                    textvariable=var
+                )
+            else:
+                widget = tk.Entry(
+                    parent,
+                    width=35,
+                    font=("Helvetica", 10),
+                    relief="solid",
+                    bd=1,
+                    textvariable=var
+                )
+                if "Fecha" in label_text:
+                    widget.insert(0, "dd/mm/aaaa")
+                    widget.bind('<FocusIn>', lambda e: clear_placeholder(e, widget))
+                    widget.bind('<FocusOut>', lambda e: restore_placeholder(e, widget))
 
-        # Primera columna de campos
+            widget.grid(row=row, column=col+1, padx=(0, 20), pady=10, sticky='w')
+            return widget
+
+        # Organizar campos en dos columnas
+        # Primera columna
         create_label_entry(main_frame, "Nombre:", 2, 0, nombre_var)
         create_label_entry(main_frame, "Modalidad:", 3, 0, modalidad_var)
-        create_label_entry(main_frame, "Código SENCE:", 4, 0, sence_var)
-        create_label_entry(main_frame, "Duración (días):", 5, 0, duracion_dias_var)  # Nuevo campo
+        create_label_entry(main_frame, "Código SENCE:", 4, 0, codigo_sence_var)
+        create_label_entry(main_frame, "Código eLearning:", 5, 0, codigo_elearning_var)
+        create_label_entry(main_frame, "Horas Cronológicas:", 6, 0, horas_cronologicas_var)
+        create_label_entry(main_frame, "Horas Pedagógicas:", 7, 0, horas_pedagogicas_var)
 
-        # Segunda columna de campos
-        create_label_entry(main_frame, "Código eLearning:", 2, 2, elearning_var)
-        create_label_entry(main_frame, "Horas Cronológicas:", 3, 2, horas_cron_var)
-        
-        # Label para horas pedagógicas
-        horas_pedag_label = tk.Label(
-            main_frame,
-            text="Horas Pedagógicas: 0.0",
-            bg="#f0f5ff",
-            fg="#022e86",
-            font=("Helvetica", 10)
-        )
-        horas_pedag_label.grid(row=4, column=2, columnspan=2, padx=(0, 20), pady=10, sticky='w')
+        # Segunda columna
+        create_label_entry(main_frame, "Duración en Días:", 2, 2, duracion_dias_var)
+        create_label_entry(main_frame, "Tipo Curso:", 3, 2, tipo_curso_var)
+        create_label_entry(main_frame, "Resolución:", 4, 2, resolucion_var)
+        create_label_entry(main_frame, "Fecha Resolución:", 5, 2, fecha_resolucion_var)
+        create_label_entry(main_frame, "Fecha Vigencia:", 6, 2, fecha_vigencia_var)
+        create_label_entry(main_frame, "Valor:", 7, 2, valor_var)
+        create_label_entry(main_frame, "Valor Alumno SENCE:", 8, 2, valor_alumno_sence_var)
 
-        def calculate_horas_pedagogicas(*args):
+        def clear_placeholder(event, widget):
+            if widget.get() == "dd/mm/aaaa":
+                widget.delete(0, tk.END)
+
+        def restore_placeholder(event, widget):
+            if widget.get() == "":
+                widget.insert(0, "dd/mm/aaaa")
+
+        def validate_date(date_str):
+            if date_str == "dd/mm/aaaa" or not date_str:
+                return True
             try:
-                horas_cron = float(horas_cron_var.get().strip())
-                horas_pedagogicas = round(horas_cron * 4 / 3, 1)
-                horas_pedag_label.config(text=f"Horas Pedagógicas: {horas_pedagogicas}")
-                horas_pedag_var.set(str(horas_pedagogicas))
-            except ValueError:
-                horas_pedag_label.config(text="Horas Pedagógicas: Error")
-                horas_pedag_var.set("")
-
-        horas_cron_var.trace('w', calculate_horas_pedagogicas)
-
-        create_label_entry(main_frame, "Valor del Curso:", 5, 2, valor_var)
+                day, month, year = map(int, date_str.split('/'))
+                if 1 <= day <= 31 and 1 <= month <= 12 and 1900 <= year <= 2100:
+                    return True
+                return False
+            except:
+                return False
 
         def save_edited_course():
             id_curso = id_entry.get().strip()
@@ -1606,70 +1783,66 @@ class App:
                 messagebox.showwarning("Error", "Debe ingresar un ID de curso.", parent=window)
                 return
 
-            # Obtener y validar datos
-            nombre = nombre_var.get().strip()
-            modalidad = modalidad_var.get().strip()
-            sence_text = sence_var.get().strip()
-            elearn_text = elearning_var.get().strip()
-            horas_cron_text = horas_cron_var.get().strip()
-            valor_text = valor_var.get().strip()
-            duracion_dias_text = duracion_dias_var.get().strip()  # Nuevo campo
-
-            # Validaciones básicas
-            if not nombre or not modalidad:
+            # Validar campos obligatorios
+            if not all([nombre_var.get().strip(), modalidad_var.get().strip()]):
                 messagebox.showwarning(
                     "Campos requeridos",
-                    "El Nombre y la Modalidad son obligatorios.",
+                    "Los campos Nombre y Modalidad son obligatorios.",
                     parent=window
                 )
                 return
 
-            # Convertir y validar campos numéricos
+            # Validar fechas
+            for fecha in [fecha_resolucion_var.get(), fecha_vigencia_var.get()]:
+                if fecha != "dd/mm/aaaa" and fecha and not validate_date(fecha):
+                    messagebox.showerror("Error", "El formato de fecha debe ser dd/mm/aaaa", parent=window)
+                    return
+
+            def convert_date(date_str):
+                if date_str and date_str != "dd/mm/aaaa":
+                    day, month, year = date_str.split('/')
+                    return f"{year}-{month}-{day}"
+                return None
+
+            # Convertir valores numéricos
             try:
-                codigo_sence = int(sence_text) if sence_text else None
-                codigo_elearn = int(elearn_text) if elearn_text else None
-                horas_cron = float(horas_cron_text) if horas_cron_text else None
-                horas_pedag = float(horas_pedag_var.get()) if horas_pedag_var.get() else None
-                valor_curso = float(valor_text) if valor_text else None
-                duracion_dias = int(duracion_dias_text) if duracion_dias_text else None  # Nuevo campo
+                curso_data = {
+                    'id_curso': int(id_curso),
+                    'nombre_curso': nombre_var.get().strip(),
+                    'modalidad': modalidad_var.get().strip(),
+                    'codigo_sence': int(codigo_sence_var.get()) if codigo_sence_var.get().strip() else None,
+                    'codigo_elearning': int(codigo_elearning_var.get()) if codigo_elearning_var.get().strip() else None,
+                    'horas_cronologicas': float(horas_cronologicas_var.get()) if horas_cronologicas_var.get().strip() else None,
+                    'horas_pedagogicas': float(horas_pedagogicas_var.get()) if horas_pedagogicas_var.get().strip() else None,
+                    'duracionDias': int(duracion_dias_var.get()) if duracion_dias_var.get().strip() else None,
+                    'tipo_curso': tipo_curso_var.get().strip() or None,
+                    'resolucion': resolucion_var.get().strip() or None,
+                    'fecha_resolucion': convert_date(fecha_resolucion_var.get()),
+                    'fecha_vigencia': convert_date(fecha_vigencia_var.get()),
+                    'valor': float(valor_var.get()) if valor_var.get().strip() else None,
+                    'valor_alumno_sence': float(valor_alumno_sence_var.get()) if valor_alumno_sence_var.get().strip() else None
+                }
             except ValueError:
                 messagebox.showerror(
                     "Error",
-                    "Por favor, verifique los campos numéricos:\n" +
-                    "- Código SENCE: debe ser número entero\n" +
-                    "- Código eLearning: debe ser número entero\n" +
-                    "- Horas Cronológicas: debe ser número decimal\n" +
-                    "- Valor: debe ser número decimal\n" +
-                    "- Duración: debe ser número entero",  # Nueva validación
+                    "Por favor, verifique que los campos numéricos contengan valores válidos.",
                     parent=window
                 )
                 return
 
-            # Actualizar curso
-            success = update_course(
-                id_curso=id_curso,
-                nombre_curso=nombre,
-                modalidad=modalidad,
-                codigo_sence=codigo_sence,
-                codigo_elearning=codigo_elearn,
-                horas_cronologicas=horas_cron,
-                horas_pedagogicas=horas_pedag,
-                valor=valor_curso,
-                duracionDias=duracion_dias  # Nuevo campo
-            )
+            success = update_course(**curso_data)
 
             if success:
                 messagebox.showinfo("Éxito", "Curso actualizado correctamente.", parent=window)
-                self.show_courses()
                 window.destroy()
+                self.show_courses()  # Actualizar la lista de cursos
             else:
-                messagebox.showerror("Error", "No se pudo actualizar el curso.", parent=window)
+                messagebox.showerror("Error", "No se pudo actualizar el curso. Verifique los datos.", parent=window)
 
-        # Frame para botones
+        # Botón guardar
         button_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        button_frame.grid(row=7, column=0, columnspan=4, pady=30)  # Actualizado el row
+        button_frame.grid(row=9, column=0, columnspan=4, pady=30)
 
-        # Botón de guardar
         tk.Button(
             button_frame,
             text="Guardar Cambios",
@@ -1683,6 +1856,7 @@ class App:
             command=save_edited_course
         ).pack()
 
+    #@requiere_rol_gui("admin")
     def delete_course_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Curso") 
@@ -2080,6 +2254,7 @@ class App:
             command=window.destroy
         ).pack(side=tk.LEFT, padx=5)
 
+    #@requiere_rol_gui("admin")
     def delete_student_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Alumno")
@@ -2325,6 +2500,7 @@ class App:
             command=search_window.destroy
         ).pack(side=tk.LEFT, padx=5)
     
+    #@requiere_rol_gui("admin")
     def edit_student_window(self):
             """
             Ventana para editar datos de un alumno existente.
@@ -2337,7 +2513,7 @@ class App:
             window.focus_force()
 
             # Configuración de la ventana
-            width, height = 800, 600
+            width, height = 800, 450
             scr_w = window.winfo_screenwidth()
             scr_h = window.winfo_screenheight()
             x = (scr_w // 2) - (width // 2)
@@ -2509,33 +2685,308 @@ class App:
     #                  PAGOS
     # ---------------------------------------------------
     def show_payments(self):
-        payments = fetch_payments()
-        columns = (
-            "id_pago", "id_inscripcion", "tipo_pago", "modalidad_pago",
-            "num_documento", "cuotas_totales", "valor", "estado", "cuotas_pagadas"
-        )
-        headers = (
-            "ID", "Inscripción", "Tipo", "Modalidad",
-            "N° Documento", "Cuotas Totales", "Valor", "Estado", "Cuotas Pagadas"
-        )
-        self._update_title_label("Listado de Pagos")
-        self._populate_tree(columns, headers, payments)
+        try:
+            if not hasattr(self, 'tree'):
+                print("Error: tree no está inicializado")
+                return
+                    
+            # Actualizar el título
+            self._update_title_label("Listado de Pagos")
+                    
+            # Definir las columnas y headers
+            columns = (
+                "ID", "Inscripcion", "Alumno", "Curso", "N_Acta",
+                "Tipo_Pago", "Modalidad_Pago", "Cuotas", "Valor_Total",
+                "Estado", "F_Inscripcion", "F_Final"
+            )
+                
+            headers = (
+                "ID", "Inscripción", "Alumno", "Curso", "N° Acta",
+                "Tipo", "Modalidad", "Cuotas", "Valor Total",
+                "Estado", "F. Inscripción", "F. Final"
+            )
+
+            # Obtener datos
+            data_raw = fetch_payments()
+            formatted_data = []
+                
+            if data_raw:
+                for payment in data_raw:
+                    # Formatear fechas y valores monetarios
+                    fecha_inscripcion = payment[4].strftime('%Y-%m-%d') if payment[4] else ''
+                    fecha_final = payment[5].strftime('%Y-%m-%d') if payment[5] else ''
+                    valor_total = f"${payment[7]:,.0f}" if payment[7] else ''
+
+                    row = [
+                        payment[0],                    # ID
+                        payment[1],                    # ID Inscripción
+                        payment[10],                   # Nombre Alumno
+                        payment[11],                   # Nombre Curso
+                        payment[9],                    # N° Acta
+                        payment[2].capitalize(),       # Tipo Pago
+                        payment[3].capitalize(),       # Modalidad Pago
+                        f"{payment[6]}/{payment[6]}",  # Cuotas (total/total)
+                        valor_total,                   # Valor Total
+                        payment[8].upper(),            # Estado
+                        fecha_inscripcion,            # Fecha Inscripción
+                        fecha_final                    # Fecha Final
+                    ]
+                    formatted_data.append(row)
+                
+            # Limpiar y configurar el tree
+            self.tree.delete(*self.tree.get_children())
+            self.tree.config(columns=columns, show="headings")
+                
+            # Configurar encabezados y columnas con anchos optimizados
+            column_widths = {
+                "ID": 60,
+                "Inscripcion": 80,
+                "Alumno": 200,
+                "Curso": 200,
+                "N_Acta": 80,
+                "Tipo_Pago": 80,
+                "Modalidad_Pago": 90,
+                "Cuotas": 70,
+                "Valor_Total": 100,
+                "Estado": 90,
+                "F_Inscripcion": 100,
+                "F_Final": 100
+            }
+
+            # Aplicar configuración de columnas
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                width = column_widths.get(column, 100)
+                self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
+                
+            # Insertar datos y aplicar colores según el estado
+            for item in formatted_data:
+                estado = item[9]  # Estado es la columna 9
+                tag = self._get_estado_pago_tag(estado)
+                self.tree.insert("", "end", values=item, tags=(tag,))
+                
+            # Configurar colores para los diferentes estados
+            self.tree.tag_configure('PENDIENTE', background='#FFF3CD')  # Amarillo claro
+            self.tree.tag_configure('PAGADO', background='#D4EDDA')     # Verde claro
+            self.tree.tag_configure('CANCELADO', background='#F8D7DA')  # Rojo claro
+
+        except Exception as e:
+            print(f"Error al mostrar pagos: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _get_estado_pago_tag(self, estado):
+        """
+        Determina el tag de color según el estado del pago
+        """
+        estado = estado.upper()
+        if estado in ['PENDIENTE', 'PAGADO', 'CANCELADO']:
+            return estado
+        return 'PENDIENTE'  # Estado por defecto
 
     def add_payment_window(self):
-        self._generic_add_window(
-            "Añadir Pago",
-            insert_payment,
-            [
-                ("ID Inscripción:", int),
-                ("Tipo de Pago(CONTADO/PAGARE):", None),
-                ("Modalidad(COMPLETO/DIFERIDO):", None),
-                ("N° Documento:", None),
-                ("Cuotas Totales:", int),
-                ("Valor:", float),
-                ("Estado:", None),
-                ("Cuotas Pagadas:", int)
-            ]
+        window = tk.Toplevel(self.root)
+        window.title("Añadir Pago")
+        window.geometry("900x500")  # Aumentado para los nuevos campos
+        window.configure(bg="#f0f5ff")
+        window.grab_set()
+        window.focus_force()
+
+        try:
+            window.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar ícono de la ventana: {e}")
+
+        # Centrar ventana
+        sw = window.winfo_screenwidth()
+        sh = window.winfo_screenheight()
+        x = (sw // 2) - (900 // 2)
+        y = (sh // 2) - (500 // 2)
+        window.geometry(f"900x500+{x}+{y}")
+
+        # Frame principal
+        main_frame = ttk.Frame(window, padding="20")
+        main_frame.pack(fill='both', expand=True)
+
+        # Título
+        title_label = ttk.Label(
+            main_frame,
+            text="Registro de Pago",
+            font=("Helvetica", 16, "bold"),
+            foreground="#022e86"
         )
+        title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
+
+        # Frame para la información de inscripción
+        inscription_frame = ttk.LabelFrame(main_frame, text="Información de Inscripción", padding="10")
+        inscription_frame.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, 10))
+
+        def fetch_inscription_info():
+            try:
+                inscripcion_id = int(inscription_entry.get())
+                # Aquí deberías tener una función que busque la información de la inscripción
+                # y devuelva los detalles
+                info = fetch_inscription_details(inscripcion_id)
+                if info:
+                    student_label.config(text=f"Alumno: {info['nombre_alumno']}")
+                    course_label.config(text=f"Curso: {info['nombre_curso']}")
+                    acta_label.config(text=f"N° Acta: {info['numero_acta']}")
+                else:
+                    messagebox.showerror("Error", "Inscripción no encontrada", parent=window)
+            except ValueError:
+                messagebox.showerror("Error", "ID de inscripción inválido", parent=window)
+
+        ttk.Label(inscription_frame, text="ID Inscripción:").grid(row=0, column=0, padx=5)
+        inscription_entry = ttk.Entry(inscription_frame, width=10)
+        inscription_entry.grid(row=0, column=1, padx=5)
+        ttk.Button(inscription_frame, text="Buscar", command=fetch_inscription_info).grid(row=0, column=2, padx=5)
+        
+        student_label = ttk.Label(inscription_frame, text="Alumno: ")
+        student_label.grid(row=0, column=3, padx=20)
+        course_label = ttk.Label(inscription_frame, text="Curso: ")
+        course_label.grid(row=0, column=4, padx=20)
+        acta_label = ttk.Label(inscription_frame, text="N° Acta: ")
+        acta_label.grid(row=0, column=5, padx=20)
+
+        # Frame para los detalles del pago
+        payment_frame = ttk.LabelFrame(main_frame, text="Detalles del Pago", padding="10")
+        payment_frame.grid(row=2, column=0, columnspan=4, sticky="ew", pady=10)
+
+        # Variables para controlar el estado de los campos
+        tipo_pago_var = tk.StringVar()
+        modalidad_pago_var = tk.StringVar()
+        num_cuotas_var = tk.StringVar(value="1")
+
+        def on_tipo_pago_change(*args):
+            if tipo_pago_var.get() == "contado":
+                num_cuotas_var.set("1")
+                cuotas_entry.config(state="disabled")
+            else:
+                cuotas_entry.config(state="normal")
+
+        def on_modalidad_change(*args):
+            if modalidad_pago_var.get() == "completo":
+                contribuciones_frame.grid_remove()
+            else:
+                contribuciones_frame.grid()
+
+        # Primera fila de detalles del pago
+        ttk.Label(payment_frame, text="Tipo de Pago:").grid(row=0, column=0, padx=5, pady=5)
+        tipo_pago_combo = ttk.Combobox(payment_frame, textvariable=tipo_pago_var, 
+                                    values=["contado", "pagare"], 
+                                    state="readonly", width=15)
+        tipo_pago_combo.grid(row=0, column=1, padx=5, pady=5)
+        tipo_pago_var.trace('w', on_tipo_pago_change)
+
+        ttk.Label(payment_frame, text="Modalidad:").grid(row=0, column=2, padx=5, pady=5)
+        modalidad_combo = ttk.Combobox(payment_frame, textvariable=modalidad_pago_var,
+                                    values=["completo", "diferido"],
+                                    state="readonly", width=15)
+        modalidad_combo.grid(row=0, column=3, padx=5, pady=5)
+        modalidad_pago_var.trace('w', on_modalidad_change)
+
+        ttk.Label(payment_frame, text="Valor Total:").grid(row=0, column=4, padx=5, pady=5)
+        valor_entry = ttk.Entry(payment_frame, width=15)
+        valor_entry.grid(row=0, column=5, padx=5, pady=5)
+
+        # Segunda fila de detalles del pago
+        ttk.Label(payment_frame, text="N° Cuotas:").grid(row=1, column=0, padx=5, pady=5)
+        cuotas_entry = ttk.Entry(payment_frame, textvariable=num_cuotas_var, width=15)
+        cuotas_entry.grid(row=1, column=1, padx=5, pady=5)
+
+        # Frame para contribuciones (visible solo si modalidad es "diferido")
+        contribuciones_frame = ttk.LabelFrame(main_frame, text="Distribución del Pago", padding="10")
+        contribuciones_frame.grid(row=3, column=0, columnspan=4, sticky="ew", pady=10)
+
+        ttk.Label(contribuciones_frame, text="Alumno:").grid(row=0, column=0, padx=5, pady=5)
+        alumno_entry = ttk.Entry(contribuciones_frame, width=15)
+        alumno_entry.grid(row=0, column=1, padx=5, pady=5)
+
+        ttk.Label(contribuciones_frame, text="Empresa:").grid(row=0, column=2, padx=5, pady=5)
+        empresa_entry = ttk.Entry(contribuciones_frame, width=15)
+        empresa_entry.grid(row=0, column=3, padx=5, pady=5)
+
+        ttk.Label(contribuciones_frame, text="SENCE:").grid(row=0, column=4, padx=5, pady=5)
+        sence_entry = ttk.Entry(contribuciones_frame, width=15)
+        sence_entry.grid(row=0, column=5, padx=5, pady=5)
+
+        def validate_and_save():
+            # Validaciones básicas
+            if not inscription_entry.get():
+                messagebox.showerror("Error", "Debe especificar una inscripción", parent=window)
+                return
+
+            if not valor_entry.get():
+                messagebox.showerror("Error", "Debe especificar un valor total", parent=window)
+                return
+
+            try:
+                id_inscripcion = int(inscription_entry.get())
+                valor_total = float(valor_entry.get())
+                num_cuotas = int(num_cuotas_var.get())
+            except ValueError:
+                messagebox.showerror("Error", "Valores numéricos inválidos", parent=window)
+                return
+
+            # Si es diferido, validar que la suma de contribuciones sea igual al valor total
+            if modalidad_pago_var.get() == "diferido":
+                try:
+                    monto_alumno = float(alumno_entry.get() or 0)
+                    monto_empresa = float(empresa_entry.get() or 0)
+                    monto_sence = float(sence_entry.get() or 0)
+                    total_contribuciones = monto_alumno + monto_empresa + monto_sence
+                    
+                    if not math.isclose(total_contribuciones, valor_total, rel_tol=1e-9):
+                        messagebox.showerror("Error", 
+                            "La suma de las contribuciones debe ser igual al valor total", 
+                            parent=window)
+                        return
+                except ValueError:
+                    messagebox.showerror("Error", "Valores de contribución inválidos", parent=window)
+                    return
+
+            # Insertar el pago
+            id_pago = insert_payment(
+                id_inscripcion=id_inscripcion,
+                tipo_pago=tipo_pago_var.get(),
+                modalidad_pago=modalidad_pago_var.get(),
+                valor_total=valor_total,
+                num_cuotas=num_cuotas
+            )
+
+            if id_pago:
+                # Si es diferido, insertar contribuciones
+                if modalidad_pago_var.get() == "diferido":
+                    if monto_alumno > 0:
+                        insert_payment_contribution(id_pago, 'alumno', monto_alumno)
+                    if monto_empresa > 0:
+                        insert_payment_contribution(id_pago, 'empresa', monto_empresa)
+                    if monto_sence > 0:
+                        insert_payment_contribution(id_pago, 'sence', monto_sence)
+
+                messagebox.showinfo("Éxito", "Pago registrado correctamente", parent=window)
+                window.destroy()
+                self.show_payments()
+            else:
+                messagebox.showerror("Error", "No se pudo registrar el pago", parent=window)
+
+        # Botón de guardar
+        save_button = ttk.Button(
+            main_frame,
+            text="Guardar",
+            command=validate_and_save,
+            style="Accent.TButton"
+        )
+        save_button.grid(row=4, column=0, columnspan=4, pady=20)
+
+        # Inicialmente ocultar el frame de contribuciones
+        contribuciones_frame.grid_remove()
+
+        # Configurar el peso de las columnas
+        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_columnconfigure(1, weight=1)
+        main_frame.grid_columnconfigure(2, weight=1)
+        main_frame.grid_columnconfigure(3, weight=1)
 
     def show_payments_by_inscription(self):
         window = tk.Toplevel(self.root)
@@ -2587,6 +3038,261 @@ class App:
 
         tk.Button(window, text="Buscar", bg="#ADD8E6", command=search).pack(pady=20)
 
+    def update_payment_status_window(self):
+        """
+        Ventana para actualizar el estado de pago con múltiples opciones de búsqueda
+        """
+        update_window = tk.Toplevel(self.root)
+        update_window.title("Actualizar Estado de Pago")
+        update_window.grab_set()
+        try:
+            update_window.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar ícono de la ventana: {e}")
+
+        # Configurar tamaño y posición
+        window_width = 900
+        window_height = 600
+        x = (update_window.winfo_screenwidth() - window_width) // 2
+        y = (update_window.winfo_screenheight() - window_height) // 2
+        update_window.geometry(f'{window_width}x{window_height}+{x}+{y}')
+
+        # Frame principal
+        main_frame = ttk.Frame(update_window, padding="10")
+        main_frame.grid(row=0, column=0, sticky="nsew")
+
+        # Frame de búsqueda
+        search_frame = ttk.LabelFrame(main_frame, text="Opciones de Búsqueda", padding="5")
+        search_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+
+        # Variables para criterios de búsqueda
+        search_type = tk.StringVar(value="rut")
+        
+        # Radio buttons para tipo de búsqueda
+        ttk.Radiobutton(search_frame, text="RUT", variable=search_type, 
+                    value="rut", command=lambda: toggle_search_fields("rut")).grid(row=0, column=0, padx=5)
+        ttk.Radiobutton(search_frame, text="ID Inscripción", variable=search_type, 
+                    value="id", command=lambda: toggle_search_fields("id")).grid(row=0, column=1, padx=5)
+        ttk.Radiobutton(search_frame, text="Nombre y Apellido", variable=search_type, 
+                    value="nombre", command=lambda: toggle_search_fields("nombre")).grid(row=0, column=2, padx=5)
+
+        # Frame para campos de búsqueda
+        fields_frame = ttk.Frame(search_frame)
+        fields_frame.grid(row=1, column=0, columnspan=4, pady=5)
+
+        # Campos de búsqueda
+        # RUT
+        rut_frame = ttk.Frame(fields_frame)
+        ttk.Label(rut_frame, text="RUT:").pack(side="left", padx=5)
+        rut_entry = ttk.Entry(rut_frame, width=15)
+        rut_entry.pack(side="left", padx=5)
+
+        # ID Inscripción
+        id_frame = ttk.Frame(fields_frame)
+        ttk.Label(id_frame, text="ID Inscripción:").pack(side="left", padx=5)
+        id_entry = ttk.Entry(id_frame, width=10)
+        id_entry.pack(side="left", padx=5)
+
+        # Nombre y Apellido
+        nombre_frame = ttk.Frame(fields_frame)
+        ttk.Label(nombre_frame, text="Nombre:").pack(side="left", padx=5)
+        nombre_entry = ttk.Entry(nombre_frame, width=15)
+        nombre_entry.pack(side="left", padx=5)
+        ttk.Label(nombre_frame, text="Apellido:").pack(side="left", padx=5)
+        apellido_entry = ttk.Entry(nombre_frame, width=15)
+        apellido_entry.pack(side="left", padx=5)
+
+        def toggle_search_fields(search_mode):
+            """Muestra/oculta campos según el tipo de búsqueda seleccionado"""
+            rut_frame.pack_forget()
+            id_frame.pack_forget()
+            nombre_frame.pack_forget()
+
+            if search_mode == "rut":
+                rut_frame.pack(side="left")
+            elif search_mode == "id":
+                id_frame.pack(side="left")
+            else:
+                nombre_frame.pack(side="left")
+
+        # Mostrar inicialmente el campo de RUT
+        toggle_search_fields("rut")
+
+        # Tabla de resultados
+        table_frame = ttk.Frame(main_frame)
+        table_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+
+        columns = ("ID Pago", "N° Acta", "RUT", "Alumno", "Curso", "Valor", "Estado Actual", "F. Inscripción")
+        payment_table = ttk.Treeview(table_frame, columns=columns, show='headings', height=10)
+
+        # Configurar columnas
+        widths = {
+            "ID Pago": 80, "N° Acta": 100, "RUT": 100, "Alumno": 200,
+            "Curso": 200, "Valor": 100, "Estado Actual": 100, "F. Inscripción": 100
+        }
+        for col in columns:
+            payment_table.heading(col, text=col)
+            payment_table.column(col, width=widths[col])
+
+        # Scrollbars
+        y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=payment_table.yview)
+        x_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=payment_table.xview)
+        payment_table.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
+
+        payment_table.grid(row=0, column=0, sticky="nsew")
+        y_scroll.grid(row=0, column=1, sticky="ns")
+        x_scroll.grid(row=1, column=0, sticky="ew")
+
+        # Frame para actualización
+        update_frame = ttk.LabelFrame(main_frame, text="Actualizar Estado", padding="5")
+        update_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+
+        ttk.Label(update_frame, text="Nuevo Estado:").grid(row=0, column=0, padx=5, pady=5)
+        estado_combo = ttk.Combobox(update_frame, values=["pendiente", "pagado", "cancelado"], 
+                                state="readonly", width=15)
+        estado_combo.grid(row=0, column=1, padx=5, pady=5)
+
+        def search_payments():
+            """Busca pagos según el criterio seleccionado"""
+            # Limpiar tabla
+            for item in payment_table.get_children():
+                payment_table.delete(item)
+
+            conn = connect_db()
+            if not conn:
+                messagebox.showerror("Error", "No se pudo conectar a la base de datos")
+                return
+
+            try:
+                cursor = conn.cursor()
+                search_criteria = search_type.get()
+                
+                base_query = """
+                    SELECT p.id_pago, i.numero_acta, a.rut,
+                        CONCAT(a.nombre, ' ', a.apellido) as alumno,
+                        c.nombre_curso, p.valor_total, p.estado,
+                        p.fecha_inscripcion
+                    FROM pagos p
+                    JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+                    JOIN alumnos a ON i.id_alumno = a.rut
+                    JOIN cursos c ON i.id_curso = c.id_curso
+                    WHERE {}
+                    ORDER BY p.fecha_inscripcion DESC
+                """
+
+                if search_criteria == "rut":
+                    rut = rut_entry.get().strip()
+                    if not validar_rut(rut):
+                        messagebox.showerror("Error", "RUT inválido")
+                        return
+                    query = base_query.format("a.rut = %s")
+                    cursor.execute(query, (rut,))
+
+                elif search_criteria == "id":
+                    inscription_id = id_entry.get().strip()
+                    if not inscription_id.isdigit():
+                        messagebox.showerror("Error", "ID de inscripción inválido")
+                        return
+                    query = base_query.format("i.id_inscripcion = %s")
+                    cursor.execute(query, (inscription_id,))
+
+                else:  # búsqueda por nombre y apellido
+                    nombre = nombre_entry.get().strip()
+                    apellido = apellido_entry.get().strip()
+                    if not nombre and not apellido:
+                        messagebox.showwarning("Advertencia", "Ingrese al menos un nombre o apellido")
+                        return
+                    conditions = []
+                    params = []
+                    if nombre:
+                        conditions.append("a.nombre LIKE %s")
+                        params.append(f"%{nombre}%")
+                    if apellido:
+                        conditions.append("a.apellido LIKE %s")
+                        params.append(f"%{apellido}%")
+                    query = base_query.format(" AND ".join(conditions))
+                    cursor.execute(query, tuple(params))
+
+                results = cursor.fetchall()
+
+                if not results:
+                    messagebox.showinfo("Información", "No se encontraron pagos")
+                    return
+
+                # Insertar resultados en la tabla
+                for row in results:
+                    formatted_row = [
+                        row[0],  # ID Pago
+                        row[1],  # N° Acta
+                        row[2],  # RUT
+                        row[3],  # Alumno
+                        row[4],  # Curso
+                        f"${row[5]:,.0f}",  # Valor Total
+                        row[6].upper(),  # Estado
+                        row[7].strftime('%Y-%m-%d')  # Fecha Inscripción
+                    ]
+                    payment_table.insert('', 'end', values=formatted_row)
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al buscar pagos: {str(e)}")
+            finally:
+                cursor.close()
+                conn.close()
+
+        def update_selected_payment():
+            """Actualiza el estado del pago seleccionado"""
+            selection = payment_table.selection()
+            if not selection:
+                messagebox.showwarning("Advertencia", "Por favor seleccione un pago")
+                return
+
+            nuevo_estado = estado_combo.get()
+            if not nuevo_estado:
+                messagebox.showwarning("Advertencia", "Por favor seleccione el nuevo estado")
+                return
+
+            payment_id = payment_table.item(selection[0])['values'][0]
+            current_status = payment_table.item(selection[0])['values'][6].lower()
+
+            # Validar cambio de estado
+            if current_status == nuevo_estado:
+                messagebox.showinfo("Información", "El pago ya tiene ese estado")
+                return
+
+            # Confirmar acción
+            if not messagebox.askyesno("Confirmar", 
+                f"¿Está seguro de cambiar el estado del pago a {nuevo_estado.upper()}?"):
+                return
+
+            # Actualizar estado
+            if update_payment_status(payment_id, nuevo_estado):
+                messagebox.showinfo("Éxito", "Estado actualizado correctamente")
+                self.show_payments()  # Actualizar la tabla
+                search_payments()  # Actualizar la tabla
+            else:
+                messagebox.showerror("Error", "No se pudo actualizar el estado")
+
+        # Botones
+        ttk.Button(search_frame, text="Buscar", command=search_payments).grid(
+            row=1, column=3, padx=5, pady=5)
+        ttk.Button(update_frame, text="Actualizar Estado", command=update_selected_payment).grid(
+            row=0, column=2, padx=5)
+        ttk.Button(main_frame, text="Cerrar", command=update_window.destroy).grid(
+            row=3, column=0, sticky="e", padx=5, pady=10)
+
+        # Binds para tecla Enter
+        rut_entry.bind('<Return>', lambda e: search_payments())
+        id_entry.bind('<Return>', lambda e: search_payments())
+        nombre_entry.bind('<Return>', lambda e: search_payments())
+        apellido_entry.bind('<Return>', lambda e: search_payments())
+
+        # Configuración de grid weights
+        update_window.grid_columnconfigure(0, weight=1)
+        update_window.grid_rowconfigure(0, weight=1)
+        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_rowconfigure(1, weight=1)
+        table_frame.grid_columnconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(0, weight=1)
     # ---------------------------------------------------
     #                  FACTURAS
     # ---------------------------------------------------
@@ -2987,6 +3693,57 @@ class App:
         # Cargar contactos iniciales
         load_contacts()
 
+    #========================================================
+    #                    COTIZACIONES
+    #========================================================
+
+    def show_cotizaciones(self):
+        """
+        Muestra la lista de cotizaciones en el treeview
+        """
+        cotizaciones = fetch_cotizaciones()
+        
+        # Definir columnas y encabezados
+        columns = (
+            "id_cotizacion",
+            "nombre_contacto",
+            "origen",
+            "fecha_cotizacion",
+            "fecha_vencimiento",
+            "email",
+            "modo_pago",
+            "cantidad_total_cursos"
+        )
+        
+        headers = (
+            "ID",
+            "Nombre Contacto",
+            "Origen",
+            "Fecha Cotización",
+            "Fecha Vencimiento",
+            "Email",
+            "Modo de Pago",
+            "Cantidad Cursos"
+        )
+
+        self._update_title_label("Listado de Cotizaciones")
+        self._populate_tree(columns, headers, cotizaciones)
+
+        # Ajustar el ancho de las columnas específicas
+        if hasattr(self, 'tree'):
+            self.tree.column("id_cotizacion", width=80)
+            self.tree.column("nombre_contacto", width=150)
+            self.tree.column("origen", width=150)
+            self.tree.column("fecha_cotizacion", width=120)
+            self.tree.column("fecha_vencimiento", width=120)
+            self.tree.column("email", width=200)
+            self.tree.column("modo_pago", width=100)
+            self.tree.column("cantidad_total_cursos", width=100)
+  
+    def show_cotizacion_window(self):
+        window = tk.Toplevel(self.root)
+        window.title("Nueva Cotización")
+        CotizacionWindow(window)
     # ---------------------------------------------------
     #  Función genérica para varias "ventanas de añadir"
     #  (En este ejemplo, la usamos para Pagos, Facturas, etc.)
