@@ -1266,9 +1266,10 @@ def fetch_alumno_curso_inscripcion(id_inscripcion):
     finally:
         conn.close()
 
-def insert_payment(id_inscripcion, tipo_pago, modalidad_pago, valor_total, num_cuotas=1):
+def insert_payment(id_inscripcion, tipo_pago, modalidad_pago, valor_total, num_cuotas=1, fecha_pago=None):
     """
-    Inserta un nuevo pago y sus cuotas si es necesario
+    Inserta un nuevo pago (1 a 1 por id_inscripcion) y, si es "pagare",
+    crea las cuotas en estado 'pendiente', con vencimientos calculados desde `fecha_pago`.
     """
     conn = connect_db()
     if not conn:
@@ -1276,32 +1277,58 @@ def insert_payment(id_inscripcion, tipo_pago, modalidad_pago, valor_total, num_c
 
     try:
         with conn.cursor() as cursor:
-            # Insertar el pago
+            # Verificar que no exista un pago previo para esta inscripción
+            check_query = """
+                SELECT id_pago 
+                FROM pagos
+                WHERE id_inscripcion = %s
+                LIMIT 1
+            """
+            cursor.execute(check_query, (id_inscripcion,))
+            existing = cursor.fetchone()
+            if existing:
+                raise Exception("Ya existe un pago registrado para esta inscripción (solo se permite 1 a 1).")
+
+            # Si no se proporciona `fecha_pago`, usar la fecha actual
+            if not fecha_pago:
+                fecha_pago = datetime.now()
+
+            # Insertar el pago principal
             insert_pago_query = """
                 INSERT INTO pagos 
-                (id_inscripcion, tipo_pago, modalidad_pago, fecha_inscripcion, 
-                num_cuotas, valor_total, estado)
-                VALUES (%s, %s, %s, NOW(), %s, %s, 'pendiente')
+                (id_inscripcion, tipo_pago, modalidad_pago, fecha_inscripcion, fecha_pago,
+                 num_cuotas, valor_total, estado)
+                VALUES (%s, %s, %s, NOW(), %s, %s, %s, 'pendiente')
             """
             cursor.execute(insert_pago_query, (
-                id_inscripcion, tipo_pago, modalidad_pago,
-                num_cuotas, valor_total
+                id_inscripcion,
+                tipo_pago,
+                modalidad_pago,
+                fecha_pago,
+                num_cuotas,
+                valor_total
             ))
             
             id_pago = cursor.lastrowid
             id_pagare = None
             
-            # Si es pagaré, generar cuotas
+            # Si es pagaré, generar las cuotas
             if tipo_pago == 'pagare':
                 valor_cuota = valor_total / num_cuotas
                 for i in range(num_cuotas):
+                    # Calcular la fecha de vencimiento de cada cuota
+                    fecha_vencimiento = fecha_pago + timedelta(days=(30 * (i + 1)))
+
                     insert_cuota_query = """
                         INSERT INTO cuotas 
                         (id_pago, nro_cuota, valor_cuota, fecha_vencimiento, estado_cuota)
-                        VALUES (%s, %s, %s, DATE_ADD(NOW(), INTERVAL %s MONTH), 'pendiente')
+                        VALUES (%s, %s, %s, %s, 'pendiente')
                     """
                     cursor.execute(insert_cuota_query, (
-                        id_pago, i + 1, valor_cuota, i
+                        id_pago,
+                        i + 1,
+                        valor_cuota,
+                        fecha_vencimiento
                     ))
                 
                 # Insertar en tabla pagares
@@ -1369,68 +1396,62 @@ def update_payment_status(id_pago, nuevo_estado):
 
 def register_quota_payment(id_cuota):
     """
-    Registra el pago de una cuota y actualiza estado y fecha final si corresponde.
+    1) Actualiza la cuota (id_cuota) a estado_cuota='pagada' y fecha_pago=NOW().
+    2) Chequea si TODAS las cuotas de ese pago están pagadas.
+    3) Si TODAS están pagadas, actualiza pagos.estado='pagado', fecha_final=NOW().
+    4) Caso contrario, el pago sigue estado='pendiente'.
     """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
-            
-            # Actualizar estado de la cuota
+            # 1) Marcar la cuota como pagada
             query_cuota = """
-                UPDATE cuotas 
-                SET estado_cuota = 'pagada', 
+                UPDATE cuotas
+                SET estado_cuota = 'pagada',
                     fecha_pago = NOW()
                 WHERE id_cuota = %s
             """
             cursor.execute(query_cuota, (id_cuota,))
 
-            # Verificar si todas las cuotas están pagadas
+            # 2) Verificar si TODAS las cuotas están pagadas
             query_check = """
-                SELECT 
-                    p.id_pago,
-                    COUNT(c.id_cuota) as total_cuotas,
-                    SUM(CASE WHEN c.estado_cuota = 'pagada' THEN 1 ELSE 0 END) as cuotas_pagadas
+                SELECT p.id_pago,
+                       COUNT(c.id_cuota) as total_cuotas,
+                       SUM(CASE WHEN c.estado_cuota = 'pagada' THEN 1 ELSE 0 END) as cuotas_pagadas
                 FROM pagos p
                 JOIN cuotas c ON p.id_pago = c.id_pago
                 WHERE c.id_cuota = %s
                 GROUP BY p.id_pago
             """
             cursor.execute(query_check, (id_cuota,))
-            result = cursor.fetchone()
-            
-            # Si todas las cuotas están pagadas, actualizar estado del pago y fecha final
-            if result and result[1] == result[2]:  # total_cuotas == cuotas_pagadas
-                query_pago = """
-                    UPDATE pagos 
-                    SET estado = 'pagado',
-                        fecha_final = NOW()
-                    WHERE id_pago = %s
-                """
-                cursor.execute(query_pago, (result[0],))
-                
-                # Registrar en el log de pagos completados
-                query_log = """
-                    INSERT INTO log_pagos 
-                    (id_pago, tipo_evento, fecha_evento, descripcion)
-                    VALUES (%s, 'COMPLETADO', NOW(), 'Pago completado - todas las cuotas pagadas')
-                """
-                try:
-                    cursor.execute(query_log, (result[0],))
-                except:
-                    # Si la tabla de log no existe, continuamos sin error
-                    pass
-            
+            row = cursor.fetchone()
+            if row:
+                id_pago = row[0]
+                total_cuotas = row[1]
+                cuotas_pagadas = row[2]
+
+                # 3) Si todas pagadas => marcar pago como 'pagado'
+                if cuotas_pagadas == total_cuotas:
+                    query_pago = """
+                        UPDATE pagos
+                        SET estado = 'pagado',
+                            fecha_final = NOW()
+                        WHERE id_pago = %s
+                    """
+                    cursor.execute(query_pago, (id_pago,))
+
             conn.commit()
             return True
         except Exception as e:
-            print("Error al registrar pago de cuota:", e)
             conn.rollback()
+            print("Error al registrar cuota pagada:", e)
             return False
         finally:
             cursor.close()
             conn.close()
     return False
+
 
 def get_payment_completion_info(id_pago):
     """
@@ -1628,6 +1649,129 @@ def get_payment_summary_by_dates(fecha_inicio, fecha_fin):
             cursor.close()
             conn.close()
     return None
+
+def fetch_cuotas_by_pago(id_pago):
+    """
+    Devuelve todas las cuotas relacionadas a un pago específico,
+    ordenadas por nro_cuota.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT id_cuota,
+                       id_pago,
+                       nro_cuota,
+                       valor_cuota,
+                       fecha_vencimiento,
+                       fecha_pago,
+                       estado_cuota
+                FROM cuotas
+                WHERE id_pago = %s
+                ORDER BY nro_cuota
+            """
+            cursor.execute(query, (id_pago,))
+            results = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return results  # Lista de tuplas
+        except Exception as e:
+            print("Error en fetch_cuotas_by_pago:", e)
+            conn.close()
+            return []
+    return []
+
+def update_cuota(id_cuota, valor_cuota=None, fecha_vencimiento=None):
+    """
+    Actualiza campos de la cuota según los argumentos que no sean None.
+    Ejemplo de uso: update_cuota(5, valor_cuota=30000.0, fecha_vencimiento='2025-01-01')
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            # Construimos dinámicamente los campos a actualizar
+            fields = []
+            params = []
+            
+            if valor_cuota is not None:
+                fields.append("valor_cuota = %s")
+                params.append(valor_cuota)
+            if fecha_vencimiento is not None:
+                fields.append("fecha_vencimiento = %s")
+                params.append(fecha_vencimiento)
+            
+            # Si no hay campos a actualizar, retornamos True sin hacer nada
+            if not fields:
+                cursor.close()
+                conn.close()
+                return True
+            
+            set_clause = ", ".join(fields)
+            query = f"UPDATE cuotas SET {set_clause} WHERE id_cuota = %s"
+            params.append(id_cuota)
+            
+            cursor.execute(query, params)
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+        except Exception as e:
+            print("Error en update_cuota:", e)
+            conn.rollback()
+            conn.close()
+            return False
+    return False
+
+def search_pagare_payments(search_type, value):
+    """
+    search_type: 'inscripcion', 'rut', 'pago'
+    value: valor buscado
+    Devuelve los pagos que sean tipo 'pagare', sin filtrar por estado,
+    para que aparezcan aunque se hayan pagado cuotas parcial o totalmente.
+    """
+    conn = connect_db()
+    results = []
+    if conn:
+        try:
+            cursor = conn.cursor()
+            base_query = """
+                SELECT 
+                    p.id_pago,
+                    p.id_inscripcion,
+                    CONCAT(a.nombre, ' ', a.apellido) AS nombre_alumno,
+                    i.numero_acta,
+                    p.valor_total,
+                    p.estado
+                FROM pagos p
+                JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+                JOIN alumnos a ON i.id_alumno = a.rut
+                WHERE p.tipo_pago = 'pagare'
+                  AND {}
+            """
+            # Construimos la cláusula según el tipo de búsqueda
+            if search_type == 'inscripcion':
+                clause = "i.id_inscripcion = %s"
+            elif search_type == 'rut':
+                clause = "a.rut = %s"
+            elif search_type == 'pago':
+                clause = "p.id_pago = %s"
+            else:
+                clause = "1=2"  # nada
+
+            final_query = base_query.format(clause)
+            cursor.execute(final_query, (value,))
+            results = cursor.fetchall()
+        except Exception as e:
+            print("Error al buscar pagos tipo 'pagare':", e)
+        finally:
+            cursor.close()
+            conn.close()
+    return results
+
+
 
 def fetch_inscription_details(id_inscripcion):
     """
@@ -1887,36 +2031,63 @@ def get_or_create_empresa(nombre_empresa):
             
     return id_empresa
 
-def fetch_all_empresas(conn):
+def fetch_all_empresas():
     """
     Obtiene todas las empresas registradas junto con su contacto principal.
+    Retorna una lista de diccionarios con la información.
     """
+    conn = connect_db()
+    if not conn:
+        print("Error: No se pudo conectar a la base de datos")
+        return []
+
     try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT 
-                e.id_empresa,
-                e.rut_empresa,
-                e.direccion_empresa,
-                ec.nombre_contacto,
-                ec.correo_contacto,
-                ec.telefono_contacto,
-                ec.rol_contacto
-            FROM empresa e
-            LEFT JOIN empresa_contactos ec ON e.id_empresa = ec.id_empresa
-            WHERE ec.id_contacto = (
-                SELECT MIN(id_contacto)
-                FROM empresa_contactos
-                WHERE id_empresa = e.id_empresa
-            )
-            ORDER BY e.id_empresa
-        """)
-        empresas = cursor.fetchall()
-        cursor.close()
-        return empresas
+        with conn.cursor(dictionary=True) as cursor:
+            query = """
+                SELECT 
+                    e.id_empresa,
+                    e.rut_empresa,
+                    e.direccion_empresa,
+                    ec.nombre_contacto,
+                    ec.correo_contacto,
+                    ec.telefono_contacto,
+                    ec.rol_contacto
+                FROM empresa e
+                LEFT JOIN (
+                    SELECT ec1.*
+                    FROM empresa_contactos ec1
+                    INNER JOIN (
+                        SELECT id_empresa, MIN(id_contacto) as min_id
+                        FROM empresa_contactos
+                        GROUP BY id_empresa
+                    ) ec2 ON ec1.id_empresa = ec2.id_empresa 
+                    AND ec1.id_contacto = ec2.min_id
+                ) ec ON e.id_empresa = ec.id_empresa
+                ORDER BY e.id_empresa
+            """
+            cursor.execute(query)
+            empresas = cursor.fetchall()
+            return empresas
+
     except Exception as e:
         print(f"Error al obtener empresas: {e}")
         return []
+    finally:
+        conn.close()
+
+def format_empresa_data(empresa):
+    """
+    Formatea los datos de una empresa para su visualización
+    """
+    return [
+        str(empresa.get("id_empresa", "")),
+        str(empresa.get("rut_empresa", "")),
+        str(empresa.get("direccion_empresa", "")),
+        str(empresa.get("nombre_contacto", "")),
+        str(empresa.get("correo_contacto", "")),
+        str(empresa.get("telefono_contacto", "")),
+        str(empresa.get("rol_contacto", ""))
+    ]
 
 def fetch_empresa_by_rut(conn, rut_empresa):
     """
@@ -1936,177 +2107,192 @@ def fetch_empresa_by_rut(conn, rut_empresa):
         print(f"Error al buscar empresa por RUT: {e}")
         return None
 
-def insert_empresa(conn, empresa_data):
+def save_empresa(empresa_data, is_update=False):
     """
-    Inserta una nueva empresa.
+    Guarda o actualiza una empresa en la base de datos.
     
     Args:
-        empresa_data (dict): Diccionario con los datos de la empresa
-            {
-                'id_empresa': str,
-                'rut_empresa': str,
-                'direccion_empresa': str
-            }
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO empresa (id_empresa, rut_empresa, direccion_empresa)
-            VALUES (%s, %s, %s)
-        """, (
-            empresa_data['id_empresa'],
-            empresa_data['rut_empresa'],
-            empresa_data['direccion_empresa']
-        ))
-        conn.commit()
-        cursor.close()
-        return True
-    except Exception as e:
-        print(f"Error al insertar empresa: {e}")
-        conn.rollback()
-        return False
-
-def update_empresa(conn, empresa_data):
-    """
-    Actualiza los datos de una empresa existente.
+        empresa_data (dict): Datos de la empresa
+        is_update (bool): True si es actualización, False si es inserción
     
-    Args:
-        empresa_data (dict): Diccionario con los datos actualizados
-            {
-                'id_empresa': str,
-                'rut_empresa': str,
-                'direccion_empresa': str
-            }
+    Returns:
+        bool: True si la operación fue exitosa
     """
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE empresa 
-            SET rut_empresa = %s, direccion_empresa = %s
-            WHERE id_empresa = %s
-        """, (
-            empresa_data['rut_empresa'],
-            empresa_data['direccion_empresa'],
-            empresa_data['id_empresa']
-        ))
-        conn.commit()
-        cursor.close()
-        return True
-    except Exception as e:
-        print(f"Error al actualizar empresa: {e}")
-        conn.rollback()
+    conn = connect_db()
+    if not conn:
         return False
 
-def insert_contacto_empresa(conn, contacto_data):
-    """
-    Inserta un nuevo contacto para una empresa.
-    
-    Args:
-        contacto_data (dict): Diccionario con los datos del contacto
-            {
-                'id_empresa': str,
-                'nombre_contacto': str,
-                'rol_contacto': str,
-                'correo_contacto': str,
-                'telefono_contacto': int
-            }
-    """
     try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO empresa_contactos 
-            (id_empresa, nombre_contacto, rol_contacto, correo_contacto, telefono_contacto)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (
-            contacto_data['id_empresa'],
-            contacto_data['nombre_contacto'],
-            contacto_data['rol_contacto'],
-            contacto_data['correo_contacto'],
-            contacto_data['telefono_contacto']
-        ))
-        conn.commit()
-        cursor.close()
-        return True
+        with conn.cursor() as cursor:
+            if is_update:
+                query = """
+                    UPDATE empresa 
+                    SET rut_empresa = %s, direccion_empresa = %s
+                    WHERE id_empresa = %s
+                """
+                params = (
+                    empresa_data['rut_empresa'],
+                    empresa_data['direccion_empresa'],
+                    empresa_data['id_empresa']
+                )
+            else:
+                query = """
+                    INSERT INTO empresa (id_empresa, rut_empresa, direccion_empresa)
+                    VALUES (%s, %s, %s)
+                """
+                params = (
+                    empresa_data['id_empresa'],
+                    empresa_data['rut_empresa'],
+                    empresa_data['direccion_empresa']
+                )
+            
+            cursor.execute(query, params)
+            conn.commit()
+            return True
+            
     except Exception as e:
-        print(f"Error al insertar contacto de empresa: {e}")
+        print(f"Error al {'actualizar' if is_update else 'insertar'} empresa: {e}")
         conn.rollback()
         return False
+    finally:
+        conn.close()
 
-def fetch_contactos_by_empresa(conn, id_empresa):
+def fetch_empresa_by_id(id_empresa):
+    """
+    Obtiene los datos de una empresa por su ID.
+    """
+    conn = connect_db()
+    if not conn:
+        return None
+
+    try:
+        with conn.cursor(dictionary=True) as cursor:
+            query = """
+                SELECT id_empresa, rut_empresa, direccion_empresa
+                FROM empresa
+                WHERE id_empresa = %s
+            """
+            cursor.execute(query, (id_empresa,))
+            return cursor.fetchone()
+    except Exception as e:
+        print(f"Error al obtener empresa: {e}")
+        return None
+    finally:
+        conn.close()
+
+def fetch_all_empresas_for_combo():
+    """
+    Obtiene todas las empresas para mostrar en un combobox
+    """
+    conn = connect_db()
+    if not conn:
+        return []
+        
+    try:
+        with conn.cursor(dictionary=True) as cursor:
+            cursor.execute("""
+                SELECT id_empresa, rut_empresa
+                FROM empresa
+                ORDER BY id_empresa
+            """)
+            return cursor.fetchall()
+    except Exception as e:
+        print(f"Error al obtener lista de empresas: {e}")
+        return []
+    finally:
+        conn.close()
+
+def fetch_contactos_by_empresa(id_empresa):
     """
     Obtiene todos los contactos de una empresa específica.
     """
-    try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT id_contacto, nombre_contacto, rol_contacto, 
-                   correo_contacto, telefono_contacto
-            FROM empresa_contactos 
-            WHERE id_empresa = %s
-            ORDER BY nombre_contacto
-        """, (id_empresa,))
-        contactos = cursor.fetchall()
-        cursor.close()
-        return contactos
-    except Exception as e:
-        print(f"Error al obtener contactos de empresa: {e}")
+    conn = connect_db()
+    if not conn:
         return []
-
-def update_contacto_empresa(conn, contacto_data):
-    """
-    Actualiza los datos de un contacto existente.
-    
-    Args:
-        contacto_data (dict): Diccionario con los datos actualizados
-            {
-                'id_contacto': int,
-                'nombre_contacto': str,
-                'rol_contacto': str,
-                'correo_contacto': str,
-                'telefono_contacto': int
-            }
-    """
+        
     try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE empresa_contactos 
-            SET nombre_contacto = %s,
-                rol_contacto = %s,
-                correo_contacto = %s,
-                telefono_contacto = %s
-            WHERE id_contacto = %s
-        """, (
-            contacto_data['nombre_contacto'],
-            contacto_data['rol_contacto'],
-            contacto_data['correo_contacto'],
-            contacto_data['telefono_contacto'],
-            contacto_data['id_contacto']
-        ))
-        conn.commit()
-        cursor.close()
-        return True
+        with conn.cursor(dictionary=True) as cursor:
+            cursor.execute("""
+                SELECT id_contacto, nombre_contacto, rol_contacto, 
+                       correo_contacto, telefono_contacto
+                FROM empresa_contactos 
+                WHERE id_empresa = %s
+                ORDER BY nombre_contacto
+            """, (id_empresa,))
+            return cursor.fetchall()
     except Exception as e:
-        print(f"Error al actualizar contacto de empresa: {e}")
-        conn.rollback()
+        print(f"Error al obtener contactos: {e}")
+        return []
+    finally:
+        conn.close()
+
+def save_contacto_empresa(contacto_data, is_update=False):
+    """
+    Guarda o actualiza un contacto de empresa
+    """
+    conn = connect_db()
+    if not conn:
         return False
 
-def delete_contacto_empresa(conn, id_contacto):
-    """
-    Elimina un contacto específico de empresa.
-    """
     try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            DELETE FROM empresa_contactos 
-            WHERE id_contacto = %s
-        """, (id_contacto,))
-        conn.commit()
-        cursor.close()
-        return True
+        with conn.cursor() as cursor:
+            if is_update:
+                query = """
+                    UPDATE empresa_contactos 
+                    SET nombre_contacto = %s,
+                        rol_contacto = %s,
+                        correo_contacto = %s,
+                        telefono_contacto = %s
+                    WHERE id_contacto = %s
+                """
+                params = (
+                    contacto_data['nombre_contacto'],
+                    contacto_data['rol_contacto'],
+                    contacto_data['correo_contacto'],
+                    contacto_data['telefono_contacto'],
+                    contacto_data['id_contacto']
+                )
+            else:
+                query = """
+                    INSERT INTO empresa_contactos 
+                    (id_empresa, nombre_contacto, rol_contacto, correo_contacto, telefono_contacto)
+                    VALUES (%s, %s, %s, %s, %s)
+                """
+                params = (
+                    contacto_data['id_empresa'],
+                    contacto_data['nombre_contacto'],
+                    contacto_data['rol_contacto'],
+                    contacto_data['correo_contacto'],
+                    contacto_data['telefono_contacto']
+                )
+            
+            cursor.execute(query, params)
+            conn.commit()
+            return True
     except Exception as e:
-        print(f"Error al eliminar contacto de empresa: {e}")
+        print(f"Error al guardar contacto: {e}")
         conn.rollback()
         return False
+    finally:
+        conn.close()
+
+def delete_contacto_empresa(id_contacto):
+    """Elimina un contacto de empresa"""
+    conn = connect_db()
+    if not conn:
+        return False
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM empresa_contactos WHERE id_contacto = %s", (id_contacto,))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"Error al eliminar contacto: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
 
 # =======================================
 #           COTIZACIONES 

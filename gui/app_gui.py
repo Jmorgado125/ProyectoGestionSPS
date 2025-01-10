@@ -73,25 +73,27 @@ def requiere_rol_gui(rol_permitido):
 
 from database.queries import (
     fetch_courses,insert_course,update_course,delete_course_by_id,                                  #Cursos
-    validate_curso_exists,get_course_duration,add_business_days,
+    validate_curso_exists,add_business_days,
 
 
     fetch_courses_by_student_rut,fetch_all_students,insert_student,fetch_student_by_rut,            #Alumnos
     delete_student_by_rut,fetch_students_by_name_apellido,validate_alumno_exists,
 
     fetch_payments,insert_payment,fetch_payments_by_inscription,insert_payment_contribution,        #Pagos
-    update_payment_status,fetch_alumno_curso_inscripcion,
+    update_payment_status,fetch_alumno_curso_inscripcion,fetch_cuotas_by_pago,register_quota_payment,
+    update_cuota,search_pagare_payments,
 
     insert_invoice,fetch_invoices,                                                                  #Facturas
     
     fetch_user_by_credentials,enroll_student,fetch_inscriptions,                                    #Inscripciones
     update_inscription,update_student,validate_duplicate_enrollment,
     format_inscription_data,delete_inscription,fetch_inscription_by_id,
-    get_course_duration, add_business_days,fetch_inscription_details,
+     add_business_days,
 
-    get_empresa_by_name,get_or_create_empresa,register_new_empresa,fetch_all_empresas,              #Empresas
-    update_empresa,insert_empresa,fetch_contactos_by_empresa,fetch_empresa_by_rut,
-    insert_contacto_empresa,update_contacto_empresa,delete_contacto_empresa,
+    get_or_create_empresa,fetch_all_empresas,                                                       #Empresas
+    fetch_contactos_by_empresa,fetch_all_empresas_for_combo
+    ,delete_contacto_empresa,format_empresa_data,
+    fetch_empresa_by_id,save_empresa,save_contacto_empresa,
 
     fetch_cotizaciones          
 )
@@ -137,7 +139,8 @@ class App:
         self.root.deiconify()
 
         # 5. Mostramos directamente el LoginFrame (o la interfaz principal)
-        self.show_login_frame()
+        #self.show_login_frame()
+        self.setup_main_interface()
 
     def setup_styles(self):
         """
@@ -323,15 +326,15 @@ class App:
         alumnos_menu.add_command(label="Editar Alumno", command=self.edit_student_window)
         alumnos_menu.add_command(label="Buscar Alumno", command=self.search_student_window)
         alumnos_menu.add_command(label="Eliminar Alumno", command=self.delete_student_window)
-        alumnos_menu.add_command(label="Cursos por Alumno", command=self.show_courses_by_student)
         menubar.add_cascade(label="Alumnos", menu=alumnos_menu)
 
         # Menú Inscripciones
         inscripciones_menu = tk.Menu(menubar, tearoff=0)
         inscripciones_menu.add_command(label="Ver Inscripciones", command=self.show_inscriptions)
         inscripciones_menu.add_command(label="Matricular Alumno", command=self.enroll_student_window)
-        inscripciones_menu.add_command(label="Editar Inscripción", command=self.update_inscription_window) # <<--- Añadir función
+        inscripciones_menu.add_command(label="Editar Inscripción", command=self.update_inscription_window) 
         inscripciones_menu.add_command(label="Eliminar Inscripción", command=self.delete_inscription_window)
+        inscripciones_menu.add_command(label="Inscripciones por Alumno", command=self.show_courses_by_student)
         inscripciones_menu.add_command(label="Inscripcion Masiva", command=self.show_bulk_enrollment)
         menubar.add_cascade(label="Inscripciones", menu=inscripciones_menu)
 
@@ -341,7 +344,7 @@ class App:
         pagos_menu.add_command(label="Añadir Pago", command=self.add_payment_window)
         pagos_menu.add_command(label="Pagos por Inscripción", command=self.show_payments_by_inscription)
         pagos_menu.add_command(label="Actualizar Estado", command=self.update_payment_status_window)
-        #pagos_menu.add_command(label="Actualizar Cuotas", command=self.update_payment_contribution_window)
+        pagos_menu.add_command(label="Actualizar Cuotas", command=self.manage_cuotas_pagare_window)
         menubar.add_cascade(label="Pagos", menu=pagos_menu)
 
         # Menú Facturación
@@ -364,7 +367,7 @@ class App:
         # Menú empresas
         empresas_menu = tk.Menu(menubar, tearoff=0)
         empresas_menu.add_command(label="Ver Empresas", command=self.show_empresas)
-        empresas_menu.add_command(label="Añadir y Editar Empresa", command=self.add_edit_empresa_window)
+        empresas_menu.add_command(label="Añadir y Editar Empresa", command=self.manage_empresa_window)
         empresas_menu.add_command(label="Gestionar Contactos", command=self.manage_contacts_window)
         menubar.add_cascade(label="Empresas", menu=empresas_menu)
         
@@ -968,7 +971,7 @@ class App:
             command=save_enrollment
         ).pack()
  
-    @requiere_rol_gui("admin")
+    #@requiere_rol_gui("admin")
     def delete_inscription_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Inscripción")
@@ -1093,7 +1096,7 @@ class App:
             command=delete_window.destroy
         ).pack(side=tk.LEFT, padx=5)
     
-    @requiere_rol_gui("admin")
+    #@requiere_rol_gui("admin")
     def update_inscription_window(self):
         window = tk.Toplevel(self.root)
         window.title("Actualizar Inscripción")
@@ -1382,7 +1385,7 @@ class App:
             self.tree_scroll_horizontal.pack(side=tk.BOTTOM, fill=tk.X)
             self.tree.configure(xscrollcommand=self.tree_scroll_horizontal.set)
     
-    @requiere_rol_gui("admin")
+    #@requiere_rol_gui("admin")
     def add_course_window(self):
         """
         Ventana para añadir un nuevo curso, ajustada con el campo 'Valor' y sin fondo blanco.
@@ -1592,7 +1595,7 @@ class App:
         # Mostrar la ventana después de que todo esté construido
         window.deiconify()
 
-    @requiere_rol_gui("admin")
+    #@requiere_rol_gui("admin")
     def edit_course_window(self):
         window = tk.Toplevel(self.root)
         window.title("Editar Curso")
@@ -1888,7 +1891,7 @@ class App:
             command=save_edited_course
         ).pack()
 
-    @requiere_rol_gui("admin")
+    #@requiere_rol_gui("admin")
     def delete_course_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Curso") 
@@ -2286,7 +2289,7 @@ class App:
             command=window.destroy
         ).pack(side=tk.LEFT, padx=5)
 
-    @requiere_rol_gui("admin")
+    #@requiere_rol_gui("admin")
     def delete_student_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Alumno")
@@ -2532,7 +2535,7 @@ class App:
             command=search_window.destroy
         ).pack(side=tk.LEFT, padx=5)
     
-    @requiere_rol_gui("admin")
+    #@requiere_rol_gui("admin")
     def edit_student_window(self):
             """
             Ventana para editar datos de un alumno existente.
@@ -2837,6 +2840,17 @@ class App:
         y = (sh // 2) - (550 // 2)
         window.geometry(f"900x550+{x}+{y}")
 
+        # Definir el estilo para los botones
+        style = ttk.Style(window)
+        style.theme_use('clam')  
+        style.configure('Custom.TButton',
+                        background='#022e86',
+                        foreground='white',
+                        font=('Helvetica', 10, 'bold'))
+        style.map('Custom.TButton',
+                background=[('active', '#021f5e')],
+                foreground=[('active', 'white')])
+
         main_frame = ttk.Frame(window, padding="20")
         main_frame.pack(fill='both', expand=True)
 
@@ -2905,12 +2919,13 @@ class App:
             student_label.config(text=f"Alumno: {fetched_data['nombre_alumno']}")
             course_label.config(text=f"Curso: {fetched_data['nombre_curso']}")
             acta_label.config(text=f"N° Acta: {fetched_data['numero_acta']}")
-            
+
             # Actualizar el campo de valor con el valor del curso
             valor_entry.delete(0, tk.END)
             valor_entry.insert(0, str(fetched_data["valor_curso"]))
 
-        ttk.Button(inscription_frame, text="Buscar", command=fetch_inscription_info).grid(row=0, column=2, padx=5)
+        # Botón "Buscar"
+        ttk.Button(inscription_frame, text="Buscar", command=fetch_inscription_info, style='Custom.TButton').grid(row=0, column=2, padx=5)
 
         # --- Frame: Detalles del pago ---
         payment_frame = ttk.LabelFrame(main_frame, text="Detalles del Pago", padding="10")
@@ -2922,14 +2937,14 @@ class App:
 
         ttk.Label(payment_frame, text="Tipo de Pago:").grid(row=0, column=0, padx=5, pady=5)
         tipo_pago_combo = ttk.Combobox(payment_frame, textvariable=tipo_pago_var,
-                                       values=["contado", "pagare"],
-                                       state="readonly", width=15)
+                                    values=["contado", "pagare"],
+                                    state="readonly", width=15)
         tipo_pago_combo.grid(row=0, column=1, padx=5, pady=5)
 
         ttk.Label(payment_frame, text="Modalidad:").grid(row=0, column=2, padx=5, pady=5)
         modalidad_combo = ttk.Combobox(payment_frame, textvariable=modalidad_pago_var,
-                                       values=["completo", "diferido"],
-                                       state="readonly", width=15)
+                                    values=["completo", "diferido"],
+                                    state="readonly", width=15)
         modalidad_combo.grid(row=0, column=3, padx=5, pady=5)
 
         ttk.Label(payment_frame, text="Valor Total:").grid(row=0, column=4, padx=5, pady=5)
@@ -2940,12 +2955,19 @@ class App:
         cuotas_entry = ttk.Entry(payment_frame, textvariable=num_cuotas_var, width=15)
         cuotas_entry.grid(row=1, column=1, padx=5, pady=5)
 
-        # Mes de Inicio
-        ttk.Label(payment_frame, text="Mes de Inicio:").grid(row=1, column=2, padx=5, pady=5)
-        mes_inicio_var = tk.StringVar()
-        mes_inicio_entry = ttk.Entry(payment_frame, textvariable=mes_inicio_var, width=15)
-        mes_inicio_entry.grid(row=1, column=3, padx=5, pady=5)
+        # Nuevo: Fecha de Pago
+        ttk.Label(payment_frame, text="Fecha de Pago:").grid(row=1, column=2, padx=5, pady=5)
+        fecha_pago_var = tk.StringVar()
+        fecha_pago_entry = DateEntry(payment_frame, textvariable=fecha_pago_var, width=17, date_pattern="yyyy-mm-dd")
+        fecha_pago_entry.grid(row=1, column=3, padx=5, pady=5)
 
+        # Mes de Inicio (si lo necesitas aparte)
+        ttk.Label(payment_frame, text="Mes de Inicio:").grid(row=1, column=4, padx=5, pady=5)
+        mes_inicio_var = tk.StringVar()
+        mes_inicio_entry = ttk.Entry(payment_frame, textvariable=mes_inicio_var, width=10)
+        mes_inicio_entry.grid(row=1, column=5, padx=5, pady=5)
+
+        # Manejo del cambio de tipo de pago / modalidad
         def on_tipo_pago_change(*args):
             """
             Muestra u oculta el botón 'Generar Contrato Pagaré'
@@ -3012,6 +3034,16 @@ class App:
             tipo_pago_sel = tipo_pago_var.get()
             modalidad_sel = modalidad_pago_var.get()
 
+            # Obtener y validar fecha_pago ingresada
+            try:
+                fecha_pago_str = fecha_pago_var.get()
+                if not fecha_pago_str:
+                    raise ValueError
+                fecha_pago_dt = datetime.strptime(fecha_pago_str, "%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Error", "Fecha de pago inválida", parent=window)
+                return
+
             # Validar contribuciones si 'diferido'
             if modalidad_sel == "diferido":
                 try:
@@ -3020,9 +3052,11 @@ class App:
                     monto_sence = float(sence_entry.get() or 0)
                     total_contrib = monto_alumno + monto_empresa + monto_sence
                     if not math.isclose(total_contrib, valor_total, rel_tol=1e-9):
-                        messagebox.showerror("Error",
-                                             "La suma de contribuciones debe ser igual al valor total",
-                                             parent=window)
+                        messagebox.showerror(
+                            "Error",
+                            "La suma de contribuciones debe ser igual al valor total",
+                            parent=window
+                        )
                         return
                 except ValueError:
                     messagebox.showerror("Error", "Valores de contribución inválidos", parent=window)
@@ -3033,13 +3067,15 @@ class App:
                 monto_sence = 0
 
             # Insertar pago
-            (id_pago, id_pagare) = insert_payment(
+            id_pago, id_pagare = insert_payment(
                 id_inscripcion=id_insc,
                 tipo_pago=tipo_pago_sel,
                 modalidad_pago=modalidad_sel,
                 valor_total=valor_total,
-                num_cuotas=n_cuotas
+                num_cuotas=n_cuotas,
+                fecha_pago=fecha_pago_dt
             )
+
             if not id_pago:
                 messagebox.showerror("Error", "No se pudo registrar el pago", parent=window)
                 return
@@ -3082,11 +3118,10 @@ class App:
                 "mes_inicio":     mes_inicio_var.get(),
                 "year":           fetched_data["anio_inscripcion"] or "",
                 "fecha_inscripcion": str(fetched_data["fecha_inscripcion"]) 
-                                      if fetched_data["fecha_inscripcion"] else "",
+                                    if fetched_data["fecha_inscripcion"] else "",
             }
 
             template_path = "formatos/PAGARE.docx"
-            # Diálogo de "guardar como"
             initial_filename = f"Pagare_{created_id_pagare[0]}.docx"
             file_path = filedialog.asksaveasfilename(
                 parent=window,
@@ -3107,7 +3142,7 @@ class App:
             main_frame,
             text="Guardar Pago",
             command=validate_and_save,
-            style="Accent.TButton"
+            style='Custom.TButton'
         )
         save_button.grid(row=4, column=0, columnspan=4, pady=10)
 
@@ -3115,7 +3150,8 @@ class App:
         generate_button = ttk.Button(
             main_frame,
             text="Generar Contrato Pagaré",
-            command=generar_contrato_pagare
+            command=generar_contrato_pagare,
+            style='Custom.TButton'
         )
         generate_button.grid_remove()  # Oculto por defecto
 
@@ -3192,13 +3228,35 @@ class App:
         y = (update_window.winfo_screenheight() - window_height) // 2
         update_window.geometry(f'{window_width}x{window_height}+{x}+{y}')
 
+        # Definir el estilo para los botones
+        style = ttk.Style(update_window)
+        # Asegúrate de usar un tema que permita la personalización de los botones, como 'clam' o 'alt'
+        style.theme_use('clam')  
+        style.configure('Custom.TButton',
+                        background='#022e86',
+                        foreground='white',
+                        font=('Helvetica', 10, 'bold'))
+        # Opcional: cambiar el color cuando el botón está activo o al pasar el mouse
+        style.map('Custom.TButton',
+                background=[('active', '#021f5e')],
+                foreground=[('active', 'white')])
+
         # Frame principal
         main_frame = ttk.Frame(update_window, padding="10")
         main_frame.grid(row=0, column=0, sticky="nsew")
 
+        # Título (opcional)
+        title_label = ttk.Label(
+            main_frame,
+            text="Actualizar Estado de Pago",
+            font=("Helvetica", 16, "bold"),
+            foreground="#022e86"
+        )
+        title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
+
         # Frame de búsqueda
         search_frame = ttk.LabelFrame(main_frame, text="Opciones de Búsqueda", padding="5")
-        search_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        search_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
 
         # Variables para criterios de búsqueda
         search_type = tk.StringVar(value="rut")
@@ -3255,7 +3313,7 @@ class App:
 
         # Tabla de resultados
         table_frame = ttk.Frame(main_frame)
-        table_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        table_frame.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
 
         columns = ("ID Pago", "N° Acta", "RUT", "Alumno", "Curso", "Valor", "Estado Actual", "F. Inscripción")
         payment_table = ttk.Treeview(table_frame, columns=columns, show='headings', height=10)
@@ -3280,7 +3338,7 @@ class App:
 
         # Frame para actualización
         update_frame = ttk.LabelFrame(main_frame, text="Actualizar Estado", padding="5")
-        update_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+        update_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
 
         ttk.Label(update_frame, text="Nuevo Estado:").grid(row=0, column=0, padx=5, pady=5)
         estado_combo = ttk.Combobox(update_frame, values=["pendiente", "pagado", "cancelado"], 
@@ -3402,18 +3460,17 @@ class App:
             # Actualizar estado
             if update_payment_status(payment_id, nuevo_estado):
                 messagebox.showinfo("Éxito", "Estado actualizado correctamente")
-                self.show_payments()  # Actualizar la tabla
                 search_payments()  # Actualizar la tabla
             else:
                 messagebox.showerror("Error", "No se pudo actualizar el estado")
 
-        # Botones
-        ttk.Button(search_frame, text="Buscar", command=search_payments).grid(
+        # Botones con el estilo personalizado
+        ttk.Button(search_frame, text="Buscar", command=search_payments, style='Custom.TButton').grid(
             row=1, column=3, padx=5, pady=5)
-        ttk.Button(update_frame, text="Actualizar Estado", command=update_selected_payment).grid(
+        ttk.Button(update_frame, text="Actualizar Estado", command=update_selected_payment, style='Custom.TButton').grid(
             row=0, column=2, padx=5)
-        ttk.Button(main_frame, text="Cerrar", command=update_window.destroy).grid(
-            row=3, column=0, sticky="e", padx=5, pady=10)
+        ttk.Button(main_frame, text="Cerrar", command=update_window.destroy, style='Custom.TButton').grid(
+            row=4, column=0, sticky="e", padx=5, pady=10)
 
         # Binds para tecla Enter
         rut_entry.bind('<Return>', lambda e: search_payments())
@@ -3425,9 +3482,306 @@ class App:
         update_window.grid_columnconfigure(0, weight=1)
         update_window.grid_rowconfigure(0, weight=1)
         main_frame.grid_columnconfigure(0, weight=1)
-        main_frame.grid_rowconfigure(1, weight=1)
+        main_frame.grid_rowconfigure(2, weight=1)  # Ajustar para que la tabla expanda
         table_frame.grid_columnconfigure(0, weight=1)
         table_frame.grid_rowconfigure(0, weight=1)
+
+    def manage_cuotas_pagare_window(self):
+        """
+        Ventana para:
+        1) Buscar pagos con tipo_pago='pagare' (ya sea pendientes, pagados parcialmente, etc.)
+        por ID Inscripción, RUT Alumno o ID Pago.
+        2) Mostrar esos pagos en un Treeview reducido.
+        3) Al seleccionar uno, mostrar sus cuotas (multiselección para pagar varias a la vez).
+        4) Posibilidad de actualizar valor/fecha de vencimiento de una cuota.
+        5) Mostrar relación “Cuotas Pagadas / Total”.
+        """
+
+        # --- CREACIÓN DE VENTANA ---
+        window = tk.Toplevel(self.root)
+        window.title("Administrar Cuotas - Pagare")
+        window.configure(bg="#f0f5ff")
+        window.state("zoomed")  # Maximizada por defecto
+        window.grab_set()
+        window.focus_force()
+
+        try:
+            window.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar ícono: {e}")
+
+        # --- ESTILO DE BOTONES ---
+        style = ttk.Style(window)
+        style.theme_use('clam')
+        style.configure('Custom.TButton',
+                        background='#022e86',
+                        foreground='white',
+                        font=('Helvetica', 10, 'bold'))
+        style.map('Custom.TButton',
+                background=[('active', '#021f5e')],
+                foreground=[('active', 'white')])
+
+        # --- FRAME PRINCIPAL ---
+        main_frame = ttk.Frame(window, padding="10")
+        main_frame.pack(fill='both', expand=True)
+
+        # ----------------------------------------------------------------
+        # 1) FRAME DE BÚSQUEDA
+        # ----------------------------------------------------------------
+        search_frame = ttk.LabelFrame(main_frame, text="Buscar Pagos (Tipo: Pagaré)", padding="10")
+        search_frame.pack(fill='x')
+
+        # Radio para seleccionar el tipo de búsqueda
+        search_type = tk.StringVar(value="rut")
+        ttk.Radiobutton(search_frame, text="Por RUT Alumno", variable=search_type, value="rut").pack(side='left', padx=5)
+        ttk.Radiobutton(search_frame, text="Por ID Inscripción", variable=search_type, value="inscripcion").pack(side='left', padx=5)
+        ttk.Radiobutton(search_frame, text="Por ID Pago", variable=search_type, value="pago").pack(side='left', padx=5)
+
+        # Campo de búsqueda + Botón
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=search_var, width=15)
+        search_entry.pack(side='left', padx=10)
+
+        ttk.Button(search_frame, text="Buscar", command=lambda: do_search(), style='Custom.TButton').pack(side='left', padx=5)
+
+        # ----------------------------------------------------------------
+        # 2) FRAME PARA LISTA DE PAGOS
+        # ----------------------------------------------------------------
+        pagos_frame = ttk.LabelFrame(main_frame, text="Pagos Encontrados", padding="10")
+        pagos_frame.pack(fill='x', padx=5, pady=(10, 5))
+
+        # Definimos columnas con nombres amigables
+        pagos_columns = ("ID Pago", "ID Insc", "Alumno", "N° Acta", "Valor", "Estado")
+        pagos_tree = ttk.Treeview(pagos_frame, columns=pagos_columns, show="headings", height=3)
+
+        for col in pagos_columns:
+            pagos_tree.heading(col, text=col)
+            pagos_tree.column(col, width=110, anchor=tk.CENTER)
+
+        scroll_pagos = ttk.Scrollbar(pagos_frame, orient="vertical", command=pagos_tree.yview)
+        pagos_tree.configure(yscrollcommand=scroll_pagos.set)
+
+        pagos_tree.pack(side='left', fill='x', expand=True)
+        scroll_pagos.pack(side='right', fill='y')
+
+        # ----------------------------------------------------------------
+        # 3) FRAME PARA LISTA DE CUOTAS + Acciones a la derecha
+        # ----------------------------------------------------------------
+        middle_frame = ttk.Frame(main_frame)
+        middle_frame.pack(fill='both', expand=True)
+
+        # Frame de las cuotas a la izquierda
+        cuotas_frame = ttk.LabelFrame(middle_frame, text="Cuotas del Pago Seleccionado", padding="10")
+        cuotas_frame.pack(side='left', fill='both', expand=True, padx=5, pady=5)
+
+        cuotas_columns = ("N° Cuota", "Valor Cuota", "Vence", "F. Pago", "Estado Cuota")
+        cuotas_tree = ttk.Treeview(cuotas_frame, columns=cuotas_columns, show='headings', selectmode='extended')
+
+        col_widths = {
+            "N° Cuota": 80,
+            "Valor Cuota": 100,
+            "Vence": 100,
+            "F. Pago": 100,
+            "Estado Cuota": 100
+        }
+        for col in cuotas_columns:
+            cuotas_tree.heading(col, text=col)
+            cuotas_tree.column(col, width=col_widths[col], anchor=tk.CENTER)
+
+        scroll_cuotas = ttk.Scrollbar(cuotas_frame, orient='vertical', command=cuotas_tree.yview)
+        cuotas_tree.configure(yscrollcommand=scroll_cuotas.set)
+
+        cuotas_tree.pack(side='left', fill='both', expand=True)
+        scroll_cuotas.pack(side='right', fill='y')
+
+        # Frame de acciones a la derecha
+        action_frame = ttk.LabelFrame(middle_frame, text="Acciones sobre Cuotas", padding="10")
+        action_frame.pack(side='right', fill='y', padx=5, pady=5)
+
+        # Variables para edición
+        selected_cuota_id = tk.IntVar(value=0)
+        nro_cuota_var = tk.StringVar()
+        valor_cuota_var = tk.StringVar()
+        fecha_venc_var = tk.StringVar()
+        cuotas_info_label_var = tk.StringVar(value="Cuotas Pagadas: 0 / 0")
+
+        # Campos de edición de una cuota
+        ttk.Label(action_frame, text="ID Cuota (oculto):").grid(row=0, column=0, padx=5, pady=5, sticky='e')
+        ttk.Entry(action_frame, textvariable=selected_cuota_id, width=6, state='readonly').grid(row=0, column=1, padx=5, pady=5, sticky='w')
+
+        ttk.Label(action_frame, text="N° Cuota:").grid(row=1, column=0, padx=5, pady=5, sticky='e')
+        ttk.Entry(action_frame, textvariable=nro_cuota_var, width=6, state='readonly').grid(row=1, column=1, padx=5, pady=5, sticky='w')
+
+        ttk.Label(action_frame, text="Valor:").grid(row=2, column=0, padx=5, pady=5, sticky='e')
+        ttk.Entry(action_frame, textvariable=valor_cuota_var, width=10).grid(row=2, column=1, padx=5, pady=5, sticky='w')
+
+        ttk.Label(action_frame, text="Vence (YYYY-MM-DD):").grid(row=3, column=0, padx=5, pady=5, sticky='e')
+        ttk.Entry(action_frame, textvariable=fecha_venc_var, width=12).grid(row=3, column=1, padx=5, pady=5, sticky='w')
+
+        # Botones
+        btn_cargar = ttk.Button(action_frame, text="Cargar Cuotas", command=lambda: load_cuotas_for_payment(), style='Custom.TButton')
+        btn_cargar.grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+
+        btn_pagar = ttk.Button(action_frame, text="Pagar Seleccionadas", command=lambda: pay_selected_cuotas(), style='Custom.TButton')
+        btn_pagar.grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+
+        btn_actualizar = ttk.Button(action_frame, text="Actualizar Seleccionada", command=lambda: update_selected_cuota(), style='Custom.TButton')
+        btn_actualizar.grid(row=6, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+
+        ttk.Label(action_frame, textvariable=cuotas_info_label_var, foreground="#022e86", font=('Helvetica', 10, 'bold')).grid(row=7, column=0, columnspan=2, padx=5, pady=(10, 5))
+
+        # ----------------------------------------------------------------
+        # FUNCIONES
+        # ----------------------------------------------------------------
+        def do_search():
+            """
+            Busca pagos con tipo_pago='pagare', sin importar estado, y filtra
+            por RUT/ID Insc/ID Pago, llenando el TreeView de pagos.
+            """
+            # Limpiar
+            for item in pagos_tree.get_children():
+                pagos_tree.delete(item)
+            for item in cuotas_tree.get_children():
+                cuotas_tree.delete(item)
+
+            val = search_var.get().strip()
+            if not val:
+                messagebox.showwarning("Atención", "Ingrese un valor de búsqueda.", parent=window)
+                return
+
+            results = search_pagare_payments(search_type.get(), val)
+            if not results:
+                messagebox.showinfo("Información", "No se encontraron pagos con ese criterio.", parent=window)
+                return
+
+            for row in results:
+                pagos_tree.insert("", "end", values=row)
+
+        def load_cuotas_for_payment():
+            """
+            Carga las cuotas del pago seleccionado en cuotas_tree.
+            """
+            # Limpiar cuotas
+            for item in cuotas_tree.get_children():
+                cuotas_tree.delete(item)
+
+            selection = pagos_tree.selection()
+            if not selection:
+                return
+            
+            row_values = pagos_tree.item(selection[0], 'values')
+            # row_values -> (ID Pago, ID Insc, Alumno, N° Acta, Valor, Estado)
+            id_pago = row_values[0]  # Se asume que la primera col. es 'ID Pago'
+
+            cuota_list = fetch_cuotas_by_pago(id_pago)
+            if not cuota_list:
+                cuotas_info_label_var.set("Cuotas Pagadas: 0 / 0")
+                return
+
+            total_cuotas = len(cuota_list)
+            cuotas_pagadas = sum(1 for c in cuota_list if c[6] == 'pagada')
+
+            for c in cuota_list:
+                """
+                c: (id_cuota, id_pago, nro_cuota, valor_cuota, fecha_venc, fecha_pago, estado_cuota)
+                """
+                nro = c[2]
+                val = c[3]
+                fven = c[4].strftime("%Y-%m-%d") if c[4] else ""
+                fpag = c[5].strftime("%Y-%m-%d") if c[5] else ""
+                est = c[6]
+
+                cuotas_tree.insert("", "end", values=(nro, val, fven, fpag, est), tags=(str(c[0]),))
+
+            cuotas_info_label_var.set(f"Cuotas Pagadas: {cuotas_pagadas} / {total_cuotas}")
+
+            # Limpiar campos
+            selected_cuota_id.set(0)
+            nro_cuota_var.set("")
+            valor_cuota_var.set("")
+            fecha_venc_var.set("")
+
+        def on_select_cuota(event):
+            """
+            Al seleccionar una/s cuota/s en el TreeView, mostrar la primera en los campos.
+            """
+            selected_items = cuotas_tree.selection()
+            if not selected_items:
+                return
+
+            first_item = selected_items[0]
+            vals = cuotas_tree.item(first_item, 'values')  # (N° Cuota, Valor, Vence, F. Pago, Estado Cuota)
+            tags_ = cuotas_tree.item(first_item, 'tags')   # (id_cuota_str,)
+
+            if tags_:
+                selected_cuota_id.set(int(tags_[0]))
+
+            nro_cuota_var.set(vals[0])
+            valor_cuota_var.set(vals[1])
+            fecha_venc_var.set(vals[2])
+
+        cuotas_tree.bind('<<TreeviewSelect>>', on_select_cuota)
+
+        def pay_selected_cuotas():
+            """
+            Marca como pagadas todas las cuotas seleccionadas.
+            """
+            selected_items = cuotas_tree.selection()
+            if not selected_items:
+                messagebox.showwarning("Atención", "Seleccione al menos una cuota.", parent=window)
+                return
+            
+            error_count = 0
+            for it in selected_items:
+                tags_ = cuotas_tree.item(it, 'tags')
+                if tags_:
+                    id_cuota = int(tags_[0])
+                    success = register_quota_payment(id_cuota)
+                    if not success:
+                        error_count += 1
+
+            if error_count == 0:
+                messagebox.showinfo("Éxito", "Las cuotas seleccionadas fueron pagadas.", parent=window)
+            else:
+                messagebox.showerror("Error", f"Ocurrió un problema pagando {error_count} cuota(s).", parent=window)
+
+            load_cuotas_for_payment()
+
+        def update_selected_cuota():
+            """
+            Actualiza valor_cuota y/o fecha_vencimiento de la cuota (single).
+            """
+            _id = selected_cuota_id.get()
+            if _id == 0:
+                messagebox.showwarning("Atención", "Seleccione una cuota primero.", parent=window)
+                return
+
+            new_val = valor_cuota_var.get().strip()
+            new_date = fecha_venc_var.get().strip()
+
+            val_float = None
+            if new_val:
+                try:
+                    val_float = float(new_val)
+                except ValueError:
+                    messagebox.showerror("Error", "El valor debe ser numérico.", parent=window)
+                    return
+
+            if new_date:
+                try:
+                    datetime.strptime(new_date, "%Y-%m-%d")
+                except ValueError:
+                    messagebox.showerror("Error", "La fecha debe tener formato YYYY-MM-DD.", parent=window)
+                    return
+
+            success = update_cuota(_id, valor_cuota=val_float, fecha_vencimiento=new_date or None)
+            if success:
+                messagebox.showinfo("Éxito", "Cuota actualizada correctamente.", parent=window)
+                load_cuotas_for_payment()
+            else:
+                messagebox.showerror("Error", "No se pudo actualizar la cuota.", parent=window)
+
+        
     # ---------------------------------------------------
     #                  FACTURAS
     # ---------------------------------------------------
@@ -3453,23 +3807,20 @@ class App:
    #=======================================================
    #                EMPRESAS Y CONTACTOS
    #=======================================================
-    def add_edit_empresa_window(self, empresa_data=None):
+    def manage_empresa_window(self):
         """
-        Ventana para agregar o editar una empresa.
-        Si empresa_data es None, se usa para agregar. Si tiene datos, para editar.
+        Ventana unificada para gestionar empresas (añadir/editar)
         """
         window = tk.Toplevel(self.root)
-        window.title("Editar Empresa" if empresa_data else "Agregar Empresa")
+        window.title("Gestión de Empresas")
         window.configure(bg="#f0f5ff")
         window.grab_set()
         window.focus_force()
 
         # Configuración de la ventana
-        width, height = 800, 500
-        scr_w = window.winfo_screenwidth()
-        scr_h = window.winfo_screenheight()
-        x = (scr_w // 2) - (width // 2)
-        y = (scr_h // 2) - (height // 2)
+        width, height = 900, 600
+        x = (window.winfo_screenwidth() - width) // 2
+        y = (window.winfo_screenheight() - height) // 2
         window.geometry(f"{width}x{height}+{x}+{y}")
 
         try:
@@ -3477,104 +3828,178 @@ class App:
         except Exception as e:
             print(f"Error al cargar ícono: {e}")
 
+        # Definir el estilo para los botones
+        style = ttk.Style(window)
+        # Usar un tema que permita la personalización de los botones
+        style.theme_use('clam')  
+        style.configure('Custom.TButton',
+                        background='#022e86',
+                        foreground='white',
+                        font=('Helvetica', 10, 'bold'))
+        # Cambiar el color cuando el botón está activo o al pasar el mouse
+        style.map('Custom.TButton',
+                background=[('active', '#021f5e')],
+                foreground=[('active', 'white')])
+
         # Frame principal
-        main_frame = tk.Frame(window, bg="#f0f5ff", padx=30, pady=20)
+        main_frame = ttk.Frame(window, padding="20")
         main_frame.pack(fill='both', expand=True)
 
-        # Título
-        title_label = tk.Label(
-            main_frame,
-            text="Editar Datos de Empresa" if empresa_data else "Agregar Nueva Empresa",
-            font=("Helvetica", 16, "bold"),
-            bg="#f0f5ff",
-            fg="#022e86"
-        )
-        title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
-
         # Variables
-        id_empresa_var = tk.StringVar(value=empresa_data['id_empresa'] if empresa_data else '')
-        rut_empresa_var = tk.StringVar(value=empresa_data['rut_empresa'] if empresa_data else '')
-        direccion_var = tk.StringVar(value=empresa_data['direccion_empresa'] if empresa_data else '')
+        modo_var = tk.StringVar(value="nuevo")  # 'nuevo' o 'editar'
+        id_empresa_var = tk.StringVar()
+        rut_empresa_var = tk.StringVar()
+        direccion_var = tk.StringVar()
 
-        def create_label_entry(parent, label_text, row, col, var=None):
-            tk.Label(
-                parent,
-                text=label_text,
-                bg="#f0f5ff",
-                fg="#022e86",
-                font=("Helvetica", 10),
-                anchor='e'
-            ).grid(row=row, column=col, padx=(10, 5), pady=10, sticky='e')
-            
-            entry = tk.Entry(
-                parent,
-                width=35,
-                font=("Helvetica", 10),
-                relief="solid",
-                bd=1,
-                textvariable=var
-            )
-            entry.grid(row=row, column=col+1, padx=(0, 20), pady=10, sticky='w')
+        # Frame superior para modo y búsqueda
+        top_frame = ttk.LabelFrame(main_frame, text="Modo", padding="10")
+        top_frame.pack(fill='x', pady=(0, 20))
+
+        # Radiobuttons para seleccionar modo
+        ttk.Radiobutton(
+            top_frame,
+            text="Nueva Empresa",
+            variable=modo_var,
+            value="nuevo",
+            command=lambda: toggle_mode("nuevo")
+        ).pack(side='left', padx=20)
+
+        ttk.Radiobutton(
+            top_frame,
+            text="Editar Empresa",
+            variable=modo_var,
+            value="editar",
+            command=lambda: toggle_mode("editar")
+        ).pack(side='left', padx=20)
+
+        # Frame de búsqueda (visible solo en modo editar)
+        search_frame = ttk.Frame(top_frame)
+        search_frame.pack(side='left', padx=20, fill='x', expand=True)
+        
+        ttk.Label(search_frame, text="ID Empresa:").pack(side='left', padx=(0, 10))
+        search_entry = ttk.Entry(search_frame, width=30)
+        search_entry.pack(side='left', padx=(0, 10))
+        
+        search_button = ttk.Button(
+            search_frame,
+            text="Buscar",
+            command=lambda: buscar_empresa(search_entry.get()),
+            style='Custom.TButton'
+        )
+        search_button.pack(side='left')
+
+        # Frame de datos
+        data_frame = ttk.LabelFrame(main_frame, text="Datos de la Empresa", padding="20")
+        data_frame.pack(fill='both', expand=True, pady=(0, 20))
+
+        # Función para crear campos
+        def create_field(parent, label, variable, row, disabled=False):
+            ttk.Label(parent, text=label).grid(row=row, column=0, padx=5, pady=10, sticky='e')
+            entry = ttk.Entry(parent, textvariable=variable, width=40)
+            if disabled:
+                entry.state(['disabled'])
+            entry.grid(row=row, column=1, padx=5, pady=10, sticky='w')
             return entry
 
-        # Configurar el grid
-        main_frame.grid_columnconfigure(1, weight=1)
-
         # Campos
-        create_label_entry(main_frame, "ID Empresa:", 1, 0, id_empresa_var)
-        create_label_entry(main_frame, "RUT Empresa:", 2, 0, rut_empresa_var)
-        create_label_entry(main_frame, "Dirección:", 3, 0, direccion_var)
+        id_entry = create_field(data_frame, "ID Empresa:", id_empresa_var, 0)
+        rut_entry = create_field(data_frame, "RUT Empresa:", rut_empresa_var, 1)
+        dir_entry = create_field(data_frame, "Dirección:", direccion_var, 2)
 
-        def save_empresa():
+        # Configurar grid
+        data_frame.grid_columnconfigure(1, weight=1)
+
+        def toggle_mode(mode):
+            """Cambia entre modos añadir/editar"""
+            if mode == "nuevo":
+                search_frame.pack_forget()
+                id_entry.state(['!disabled'])
+                clear_fields()
+            else:
+                search_frame.pack(side='left', padx=20, fill='x', expand=True)
+                id_entry.state(['disabled'])
+
+        def clear_fields():
+            """Limpia todos los campos"""
+            id_empresa_var.set("")
+            rut_empresa_var.set("")
+            direccion_var.set("")
+
+        def buscar_empresa(id_empresa):
+            """Busca y carga los datos de una empresa"""
+            if not id_empresa:
+                messagebox.showwarning("Error", "Ingrese un ID de empresa", parent=window)
+                return
+
+            empresa = fetch_empresa_by_id(id_empresa)
+            if empresa:
+                id_empresa_var.set(empresa['id_empresa'])
+                rut_empresa_var.set(empresa['rut_empresa'])
+                direccion_var.set(empresa['direccion_empresa'] or "")
+            else:
+                messagebox.showerror("Error", "Empresa no encontrada", parent=window)
+
+        def save_changes():
+            """Guarda los cambios (nuevo registro o actualización)"""
+            # Validar campos requeridos
+            if not id_empresa_var.get().strip() or not rut_empresa_var.get().strip():
+                messagebox.showwarning("Error", "ID y RUT de empresa son obligatorios", parent=window)
+                return
+
+            # Validar RUT
+            if not validar_rut(rut_empresa_var.get().strip()):
+                messagebox.showerror("Error", "RUT inválido", parent=window)
+                return
+
+            # Preparar datos
             empresa_data = {
                 'id_empresa': id_empresa_var.get().strip(),
                 'rut_empresa': rut_empresa_var.get().strip(),
                 'direccion_empresa': direccion_var.get().strip() or None
             }
 
-            if not empresa_data['id_empresa'] or not empresa_data['rut_empresa']:
-                messagebox.showwarning("Error", "ID y RUT de empresa son obligatorios", parent=window)
-                return
-
-            if not validar_rut(empresa_data['rut_empresa']):
-                messagebox.showerror("Error", "El RUT ingresado es inválido.", parent=window)
-                return
-
-            if empresa_data:  # Editar
-                ok = update_empresa(empresa_data)
-            else:  # Agregar nuevo
-                ok = insert_empresa(empresa_data)
-            
-            if ok:
-                messagebox.showinfo("Éxito", 
-                                "Empresa actualizada correctamente." if empresa_data else "Empresa agregada correctamente.", 
-                                parent=window)
-                window.destroy()
+            # Guardar
+            is_update = modo_var.get() == "editar"
+            if save_empresa(empresa_data, is_update):
+                messagebox.showinfo(
+                    "Éxito",
+                    "Empresa actualizada correctamente" if is_update else "Empresa agregada correctamente",
+                    parent=window
+                )
                 self.show_empresas()  # Actualizar lista
+                window.destroy()
             else:
-                messagebox.showerror("Error", 
-                                    "No se pudo actualizar la empresa." if empresa_data else "No se pudo agregar la empresa.", 
-                                    parent=window)
+                messagebox.showerror(
+                    "Error",
+                    "No se pudo guardar los cambios",
+                    parent=window
+                )
 
-        # Botón de guardar
-        button_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        button_frame.grid(row=4, column=0, columnspan=2, pady=30)
+        # Frame de botones
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x', pady=20)
 
-        tk.Button(
+        ttk.Button(
             button_frame,
-            text="Guardar Cambios" if empresa_data else "Agregar Empresa",
-            bg="#022e86",
-            fg="white",
-            font=("Helvetica", 10, "bold"),
-            relief="flat",
-            padx=30,
-            pady=10,
-            cursor="hand2",
-            command=save_empresa
-        ).pack()
+            text="Guardar",
+            command=save_changes,
+            style="Custom.TButton"
+        ).pack(side='right', padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="Limpiar",
+            command=clear_fields,
+            style="Custom.TButton"
+        ).pack(side='right', padx=5)
+
+        # Inicializar modo
+        toggle_mode("nuevo")
 
     def show_empresas(self):
+        """Muestra la lista de empresas en el treeview"""
         try:
+            # Verificar que el treeview existe
             if not hasattr(self, 'tree'):
                 print("Error: tree no está inicializado")
                 return
@@ -3582,7 +4007,7 @@ class App:
             # Actualizar el título
             self._update_title_label("Listado de Empresas")
                 
-            # Definir las columnas y headers
+            # Definir las columnas
             columns = (
                 "id_empresa", "rut_empresa", "direccion_empresa", 
                 "nombre_contacto", "correo_contacto", "telefono_contacto", 
@@ -3596,114 +4021,173 @@ class App:
             )
 
             # Obtener datos
-            data_raw = fetch_all_empresas(connect_db())
-            formatted_data = []
-                
-            if data_raw:
-                for empresa in data_raw:
-                    row = [
-                        empresa.get("id_empresa", ""),
-                        empresa.get("rut_empresa", ""),
-                        empresa.get("direccion_empresa", ""),
-                        empresa.get("nombre_contacto", ""),
-                        empresa.get("correo_contacto", ""),
-                        empresa.get("telefono_contacto", ""),
-                        empresa.get("rol_contacto", "")
-                    ]
-                    formatted_data.append(row)
-                
-            # Limpiar y configurar el tree
+            empresas = fetch_all_empresas()
+            
+            # Configurar el treeview
             self.tree.delete(*self.tree.get_children())
+            
+            # Configurar las columnas
             self.tree.config(columns=columns, show="headings")
+            
+            # Configurar los encabezados y anchos de columna
+            column_widths = {
+                "id_empresa": 150,
+                "rut_empresa": 100,
+                "direccion_empresa": 200,
+                "nombre_contacto": 150,
+                "correo_contacto": 200,
+                "telefono_contacto": 120,
+                "rol_contacto": 120
+            }
+            
+            for col, header in zip(columns, headers):
+                self.tree.heading(col, text=header, anchor=tk.CENTER)
+                self.tree.column(col, 
+                            width=column_widths.get(col, 120),
+                            minwidth=50,
+                            anchor=tk.CENTER)
+            
+            # Insertar los datos
+            for empresa in empresas:
+                formatted_row = format_empresa_data(empresa)
+                self.tree.insert("", tk.END, values=formatted_row)
                 
-            # Configurar encabezados y columnas
-            for column, header in zip(columns, headers):
-                self.tree.heading(column, text=header, anchor=tk.CENTER)
-                # Ajustar anchos según el tipo de columna
-                if column in ["direccion_empresa", "correo_contacto"]:
-                    width = 200
-                elif column in ["id_empresa", "nombre_contacto"]:
-                    width = 150
-                elif column in ["rut_empresa"]:
-                    width = 100
-                else:
-                    width = 120
-                self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
-                
-            # Insertar datos si existen
-            for item in formatted_data:
-                self.tree.insert("", "end", values=item)
+            # Opcional: Mostrar mensaje si no hay datos
+            if not empresas:
+                print("No se encontraron empresas registradas")
                     
         except Exception as e:
             print(f"Error al mostrar empresas: {e}")
             import traceback
             traceback.print_exc()
 
-    def manage_contacts_window(self, id_empresa):
+    def manage_contacts_window(self):
         """
-        Ventana para gestionar los contactos de una empresa específica.
+        Ventana unificada para gestionar contactos de empresas
         """
         window = tk.Toplevel(self.root)
-        window.title("Gestionar Contactos")
+        window.title("Gestión de Contactos")
         window.configure(bg="#f0f5ff")
         window.grab_set()
         window.focus_force()
 
         # Configuración de la ventana
-        width, height = 1000, 600
-        scr_w = window.winfo_screenwidth()
-        scr_h = window.winfo_screenheight()
-        x = (scr_w // 2) - (width // 2)
-        y = (scr_h // 2) - (height // 2)
-        window.geometry(f"{width}x{height}+{x}+{y}")
+        window.state("zoomed")
+
+        try:
+            window.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar ícono: {e}")
+
+        # Definir el estilo para los botones
+        style = ttk.Style(window)
+        # Usar un tema que permita la personalización de los botones
+        style.theme_use('clam')  
+        style.configure('Custom.TButton',
+                        background='#022e86',
+                        foreground='white',
+                        font=('Helvetica', 10, 'bold'))
+        # Cambiar el color cuando el botón está activo o al pasar el mouse
+        style.map('Custom.TButton',
+                background=[('active', '#021f5e')],
+                foreground=[('active', 'white')])
 
         # Frame principal
-        main_frame = tk.Frame(window, bg="#f0f5ff", padx=30, pady=20)
+        main_frame = ttk.Frame(window, padding="20")
         main_frame.pack(fill='both', expand=True)
 
-        # Título
-        title_label = tk.Label(
-            main_frame,
-            text=f"Contactos de Empresa",
-            font=("Helvetica", 16, "bold"),
-            bg="#f0f5ff",
-            fg="#022e86"
+        # Frame superior
+        top_frame = ttk.LabelFrame(main_frame, text="Selección de Empresa", padding="10")
+        top_frame.pack(fill='x', pady=(0, 20))
+
+        # Combobox para seleccionar empresa
+        empresa_var = tk.StringVar()
+        empresas = fetch_all_empresas_for_combo()
+        empresa_combo = ttk.Combobox(
+            top_frame, 
+            textvariable=empresa_var,
+            values=[f"{e['id_empresa']} - {e['rut_empresa']}" for e in empresas],
+            width=50,
+            state="readonly"
         )
-        title_label.pack(pady=(0, 20))
+        empresa_combo.pack(side='left', padx=20)
 
-        # Frame para la tabla
-        table_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        table_frame.pack(fill='both', expand=True, pady=10)
+        # Frame central dividido
+        central_frame = ttk.Frame(main_frame)
+        central_frame.pack(fill='both', expand=True, pady=10)
 
-        # Crear Treeview
+        # Frame izquierdo para lista de contactos
+        list_frame = ttk.LabelFrame(central_frame, text="Contactos existentes", padding="10")
+        list_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
+
+        # Treeview para contactos
         columns = ("ID", "Nombre", "Rol", "Correo", "Teléfono")
-        tree = ttk.Treeview(table_frame, columns=columns, show='headings')
+        tree = ttk.Treeview(list_frame, columns=columns, show='headings', selectmode='browse')
 
         # Configurar columnas
-        tree.heading("ID", text="ID")
-        tree.heading("Nombre", text="Nombre")
-        tree.heading("Rol", text="Rol")
-        tree.heading("Correo", text="Correo")
-        tree.heading("Teléfono", text="Teléfono")
+        column_widths = {
+            "ID": 80,
+            "Nombre": 200,
+            "Rol": 150,
+            "Correo": 200,
+            "Teléfono": 150
+        }
 
-        tree.column("ID", width=50)
-        tree.column("Nombre", width=200)
-        tree.column("Rol", width=150)
-        tree.column("Correo", width=200)
-        tree.column("Teléfono", width=150)
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=column_widths[col], anchor=tk.CENTER)
 
-        # Scrollbar
-        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+        # Scrollbar para el tree
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
 
-        # Empaquetar Treeview y scrollbar
-        tree.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        # Frame derecho para formulario
+        form_frame = ttk.LabelFrame(central_frame, text="Detalles del Contacto", padding="20")
+        form_frame.pack(side='right', fill='both', expand=True, padx=(10, 0))
+
+        # Variables para el formulario
+        contact_vars = {
+            'id_contacto': tk.StringVar(),
+            'nombre_contacto': tk.StringVar(),
+            'rol_contacto': tk.StringVar(),
+            'correo_contacto': tk.StringVar(),
+            'telefono_contacto': tk.StringVar()
+        }
+
+        # Crear campos del formulario
+        campos = [
+            ("Nombre:", 'nombre_contacto'),
+            ("Rol:", 'rol_contacto'),
+            ("Correo:", 'correo_contacto'),
+            ("Teléfono:", 'telefono_contacto')
+        ]
+
+        for i, (label, var_name) in enumerate(campos):
+            ttk.Label(form_frame, text=label).grid(row=i, column=0, padx=5, pady=10, sticky='e')
+            ttk.Entry(
+                form_frame,
+                textvariable=contact_vars[var_name],
+                width=40
+            ).grid(row=i, column=1, padx=5, pady=10, sticky='w')
+
+        def clear_form():
+            """Limpia el formulario"""
+            for var in contact_vars.values():
+                var.set("")
+            tree.selection_remove(*tree.selection())
 
         def load_contacts():
-            for item in tree.get_children():
-                tree.delete(item)
+            """Carga los contactos de la empresa seleccionada"""
+            tree.delete(*tree.get_children())
+            if not empresa_var.get():
+                return
+
+            id_empresa = empresa_var.get().split(' - ')[0]
             contacts = fetch_contactos_by_empresa(id_empresa)
+            
             for contact in contacts:
                 tree.insert("", "end", values=(
                     contact['id_contacto'],
@@ -3713,120 +4197,106 @@ class App:
                     contact['telefono_contacto']
                 ))
 
-        def add_contact_window():
-            contact_window = tk.Toplevel(window)
-            contact_window.title("Agregar Contacto")
-            contact_window.configure(bg="#f0f5ff")
-            contact_window.grab_set()
-
-            # Variables
-            nombre_var = tk.StringVar()
-            rol_var = tk.StringVar()
-            correo_var = tk.StringVar()
-            telefono_var = tk.StringVar()
-
-            # Frame para formulario
-            form_frame = tk.Frame(contact_window, bg="#f0f5ff", padx=20, pady=20)
-            form_frame.pack(fill='both', expand=True)
-
-            # Campos
-            fields = [
-                ("Nombre:", nombre_var),
-                ("Rol:", rol_var),
-                ("Correo:", correo_var),
-                ("Teléfono:", telefono_var)
-            ]
-
-            for i, (label_text, var) in enumerate(fields):
-                tk.Label(
-                    form_frame,
-                    text=label_text,
-                    bg="#f0f5ff",
-                    fg="#022e86"
-                ).grid(row=i, column=0, pady=5, padx=5)
-                
-                tk.Entry(
-                    form_frame,
-                    textvariable=var,
-                    width=30
-                ).grid(row=i, column=1, pady=5, padx=5)
-
-            def save_contact():
-                contact_data = {
-                    'id_empresa': id_empresa,
-                    'nombre_contacto': nombre_var.get().strip(),
-                    'rol_contacto': rol_var.get().strip(),
-                    'correo_contacto': correo_var.get().strip(),
-                    'telefono_contacto': telefono_var.get().strip()
-                }
-
-                if not contact_data['nombre_contacto']:
-                    messagebox.showwarning("Error", "El nombre es obligatorio", parent=contact_window)
-                    return
-
-                if insert_contacto_empresa(contact_data):
-                    messagebox.showinfo("Éxito", "Contacto agregado correctamente", parent=contact_window)
-                    contact_window.destroy()
-                    load_contacts()
-                else:
-                    messagebox.showerror("Error", "No se pudo agregar el contacto", parent=contact_window)
-
-            # Botón guardar
-            tk.Button(
-                form_frame,
-                text="Guardar Contacto",
-                bg="#022e86",
-                fg="white",
-                command=save_contact
-            ).grid(row=len(fields), column=0, columnspan=2, pady=20)
-
-        # Frame para botones
-        button_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        button_frame.pack(pady=20)
-
-        # Botones
-        tk.Button(
-            button_frame,
-            text="Agregar Contacto",
-            bg="#022e86",
-            fg="white",
-            font=("Helvetica", 10, "bold"),
-            relief="flat",
-            padx=20,
-            pady=5,
-            cursor="hand2",
-            command=add_contact_window
-        ).pack(side='left', padx=5)
-
-        def delete_contact():
+        def on_tree_select(event):
+            """Carga los datos del contacto seleccionado en el formulario"""
             selected = tree.selection()
             if not selected:
-                messagebox.showwarning("Error", "Seleccione un contacto para eliminar", parent=window)
                 return
+                
+            values = tree.item(selected[0])['values']
+            contact_vars['id_contacto'].set(values[0])
+            contact_vars['nombre_contacto'].set(values[1])
+            contact_vars['rol_contacto'].set(values[2])
+            contact_vars['correo_contacto'].set(values[3])
+            contact_vars['telefono_contacto'].set(values[4])
+
+        def save_contact():
+            """Guarda o actualiza un contacto"""
+            if not empresa_var.get():
+                messagebox.showwarning("Error", "Seleccione una empresa", parent=window)
+                return
+
+            if not contact_vars['nombre_contacto'].get().strip():
+                messagebox.showwarning("Error", "El nombre es obligatorio", parent=window)
+                return
+
+            id_empresa = empresa_var.get().split(' - ')[0]
+            is_update = bool(contact_vars['id_contacto'].get())
             
-            if messagebox.askyesno("Confirmar", "¿Está seguro de eliminar este contacto?", parent=window):
+            contact_data = {
+                'id_empresa': id_empresa,
+                'nombre_contacto': contact_vars['nombre_contacto'].get().strip(),
+                'rol_contacto': contact_vars['rol_contacto'].get().strip(),
+                'correo_contacto': contact_vars['correo_contacto'].get().strip(),
+                'telefono_contacto': contact_vars['telefono_contacto'].get().strip()
+            }
+
+            if is_update:
+                contact_data['id_contacto'] = contact_vars['id_contacto'].get()
+                self.show_empresas()  # Actualizar lista
+
+            if save_contacto_empresa(contact_data, is_update):
+                messagebox.showinfo(
+                    "Éxito",
+                    "Contacto actualizado" if is_update else "Contacto agregado",
+                    parent=window
+                )
+                self.show_empresas()  # Actualizar lista
+                load_contacts()
+                clear_form()
+            else:
+                messagebox.showerror(
+                    "Error",
+                    "No se pudo guardar el contacto",
+                    parent=window
+                )
+
+        def delete_contact():
+            """Elimina el contacto seleccionado"""
+            selected = tree.selection()
+            if not selected:
+                messagebox.showwarning("Error", "Seleccione un contacto", parent=window)
+                return
+
+            if messagebox.askyesno("Confirmar", "¿Eliminar el contacto seleccionado?", parent=window):
                 contact_id = tree.item(selected[0])['values'][0]
                 if delete_contacto_empresa(contact_id):
-                    messagebox.showinfo("Éxito", "Contacto eliminado correctamente", parent=window)
+                    messagebox.showinfo("Éxito", "Contacto eliminado", parent=window)
+                    self.show_empresas()  # Actualizar lista
                     load_contacts()
+                    clear_form()
                 else:
                     messagebox.showerror("Error", "No se pudo eliminar el contacto", parent=window)
 
-        tk.Button(
+        # Botones del formulario
+        button_frame = ttk.Frame(form_frame)
+        button_frame.grid(row=len(campos), column=0, columnspan=2, pady=20)
+
+        ttk.Button(
             button_frame,
-            text="Eliminar Contacto",
-            bg="#cc0000",
-            fg="white",
-            font=("Helvetica", 10, "bold"),
-            relief="flat",
-            padx=20,
-            pady=5,
-            cursor="hand2",
-            command=delete_contact
+            text="Guardar",
+            command=save_contact,
+            style="Custom.TButton"
         ).pack(side='left', padx=5)
 
-        # Cargar contactos iniciales
-        load_contacts()
+        ttk.Button(
+            button_frame,
+            text="Limpiar",
+            command=clear_form,
+            style="Custom.TButton"
+        ).pack(side='left', padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="Eliminar",
+            command=delete_contact,
+            style="Custom.TButton"
+        ).pack(side='left', padx=5)
+
+        # Eventos
+        tree.bind('<<TreeviewSelect>>', on_tree_select)
+        empresa_combo.bind('<<ComboboxSelected>>', lambda e: load_contacts())
+
 
     #========================================================
     #                    COTIZACIONES
