@@ -155,7 +155,6 @@ CREATE TABLE cotizacion (
     num_cuotas INT DEFAULT NULL, -- Número de cuotas, aplicable solo para "Pagaré"
     detalle TEXT, -- Opcional, descripción del servicio
     total DECIMAL(10, 2) NOT NULL, -- Suma total de la cotización
-    valor_iva DECIMAL(10, 2) NOT NULL -- IVA calculado
 );
 
 CREATE TABLE detalle_cotizacion (

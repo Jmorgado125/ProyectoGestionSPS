@@ -2,6 +2,8 @@ from database.db_config import connect_db
 import re
 from datetime import datetime , timedelta
 from helpers.utils import requiere_rol
+import mysql.connector
+from mysql.connector import Error
 
 # =======================================
 #          UTILIDAD: VALIDAR RUT
@@ -1215,52 +1217,110 @@ def fetch_payments():
             conn.close()
     return []
 
-def insert_payment(id_inscripcion, tipo_pago, modalidad_pago, valor_total, num_cuotas=1):
+def fetch_alumno_curso_inscripcion(id_inscripcion):
     """
-    Inserta un nuevo pago y genera las cuotas correspondientes si aplica.
+    Retorna la info esencial de la inscripción, alumno y curso
     """
     conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            # Insertar pago
+    if not conn:
+        return None
+
+    try:
+        with conn.cursor(dictionary=True) as cursor:
             query = """
+                SELECT 
+                    i.id_inscripcion,
+                    i.numero_acta,
+                    i.fecha_inscripcion,
+                    i.anio_inscripcion,
+                    a.rut AS rut_alumno,
+                    a.direccion AS direccion_alumno,
+                    CONCAT(a.nombre, ' ', a.apellido) AS nombre_alumno,
+                    c.nombre_curso,
+                    c.valor AS valor_curso
+                FROM inscripciones i
+                INNER JOIN alumnos a ON i.id_alumno = a.rut
+                INNER JOIN cursos c ON i.id_curso = c.id_curso
+                WHERE i.id_inscripcion = %s
+            """
+            cursor.execute(query, (id_inscripcion,))
+            result = cursor.fetchone()
+            
+            if result:
+                return {
+                    "id_inscripcion": result["id_inscripcion"],
+                    "numero_acta": result["numero_acta"],
+                    "fecha_inscripcion": result["fecha_inscripcion"],
+                    "anio_inscripcion": result["anio_inscripcion"],
+                    "rut_alumno": result["rut_alumno"],
+                    "direccion_alumno": result["direccion_alumno"],
+                    "nombre_alumno": result["nombre_alumno"],
+                    "nombre_curso": result["nombre_curso"],
+                    "valor_curso": float(result["valor_curso"]) if result["valor_curso"] else 0.0
+                }
+            return None
+            
+    except Exception as e:
+        print(f"Error en fetch_alumno_curso_inscripcion: {e}")
+        return None
+    finally:
+        conn.close()
+
+def insert_payment(id_inscripcion, tipo_pago, modalidad_pago, valor_total, num_cuotas=1):
+    """
+    Inserta un nuevo pago y sus cuotas si es necesario
+    """
+    conn = connect_db()
+    if not conn:
+        return (None, None)
+
+    try:
+        with conn.cursor() as cursor:
+            # Insertar el pago
+            insert_pago_query = """
                 INSERT INTO pagos 
                 (id_inscripcion, tipo_pago, modalidad_pago, fecha_inscripcion, 
                 num_cuotas, valor_total, estado)
                 VALUES (%s, %s, %s, NOW(), %s, %s, 'pendiente')
             """
-            cursor.execute(query, (
-                id_inscripcion, tipo_pago, modalidad_pago, 
+            cursor.execute(insert_pago_query, (
+                id_inscripcion, tipo_pago, modalidad_pago,
                 num_cuotas, valor_total
             ))
             
-            # Obtener el ID del pago recién insertado
             id_pago = cursor.lastrowid
+            id_pagare = None
             
             # Si es pagaré, generar cuotas
             if tipo_pago == 'pagare':
                 valor_cuota = valor_total / num_cuotas
                 for i in range(num_cuotas):
-                    query_cuota = """
+                    insert_cuota_query = """
                         INSERT INTO cuotas 
                         (id_pago, nro_cuota, valor_cuota, fecha_vencimiento, estado_cuota)
                         VALUES (%s, %s, %s, DATE_ADD(NOW(), INTERVAL %s MONTH), 'pendiente')
                     """
-                    cursor.execute(query_cuota, (
-                        id_pago, i+1, valor_cuota, i
+                    cursor.execute(insert_cuota_query, (
+                        id_pago, i + 1, valor_cuota, i
                     ))
-            
+                
+                # Insertar en tabla pagares
+                insert_pagare_query = """
+                    INSERT INTO pagares (id_pago) 
+                    VALUES (%s)
+                """
+                cursor.execute(insert_pagare_query, (id_pago,))
+                id_pagare = cursor.lastrowid
+
             conn.commit()
-            return id_pago
-        except Exception as e:
-            print("Error al insertar pago:", e)
-            conn.rollback()
-            return None
-        finally:
-            cursor.close()
-            conn.close()
-    return None
+            return (id_pago, id_pagare)
+
+    except Exception as e:
+        print(f"Error en insert_payment: {e}")
+        conn.rollback()
+        return (None, None)
+    finally:
+        conn.close()
 
 def insert_payment_contribution(id_pago, tipo_contribuyente, monto):
     """
@@ -2069,6 +2129,7 @@ def fetch_cotizaciones():
                     c.fecha_vencimiento,
                     c.email,
                     c.modo_pago,
+                    c.encargado,
                     COALESCE(SUM(dc.cantidad), 0) as cantidad_total_cursos
                 FROM cotizacion c
                 LEFT JOIN detalle_cotizacion dc ON c.id_cotizacion = dc.id_cotizacion
@@ -2079,8 +2140,9 @@ def fetch_cotizaciones():
                     c.fecha_cotizacion,
                     c.fecha_vencimiento,
                     c.email,
-                    c.modo_pago
-                ORDER BY c.fecha_cotizacion DESC
+                    c.modo_pago,
+                    c.encargado
+                ORDER BY c.id_cotizacion DESC
             """
             cursor.execute(query)
             return cursor.fetchall()
@@ -2092,10 +2154,9 @@ def fetch_cotizaciones():
             conn.close()
     return []
 
-import mysql.connector
-from database.db_config import connect_db  # Asegúrate de tener esta conexión
-
-def insertar_cotizacion(fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto, email, modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva, detalles_cursos):
+def insertar_cotizacion(fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto, 
+                       email, modo_pago, metodo_pago, num_cuotas, detalle, total, 
+                       detalles_cursos, encargado):
     """
     Inserta una nueva cotización en la tabla cotizacion y sus detalles en detalle_cotizacion.
     """
@@ -2110,14 +2171,14 @@ def insertar_cotizacion(fecha_cotizacion, fecha_vencimiento, origen, nombre_cont
         query_cotizacion = """
         INSERT INTO cotizacion (
             fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto, email,
-            modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva
+            modo_pago, metodo_pago, num_cuotas, detalle, total, encargado
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query_cotizacion, (
             fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto, email,
-            modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva
+            modo_pago, metodo_pago, num_cuotas, detalle, total, encargado
         ))
-        id_cotizacion = cursor.lastrowid  # Obtener el ID de la cotización insertada
+        id_cotizacion = cursor.lastrowid
 
         # Insertar en la tabla detalle_cotizacion
         query_detalle = """
@@ -2132,7 +2193,7 @@ def insertar_cotizacion(fecha_cotizacion, fecha_vencimiento, origen, nombre_cont
             ))
 
         conn.commit()
-        return id_cotizacion  # Retorna el ID de la cotización generada
+        return id_cotizacion
 
     except mysql.connector.Error as e:
         print(f"Error al insertar cotización: {e}")
@@ -2141,64 +2202,6 @@ def insertar_cotizacion(fecha_cotizacion, fecha_vencimiento, origen, nombre_cont
     finally:
         cursor.close()
         conn.close()
-def insert_cotizacion(fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto, 
-                     email, modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva):
-    """
-    Inserta una nueva cotización en la base de datos.
-    Retorna el ID de la cotización creada.
-    """
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO cotizacion (
-                    fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto,
-                    email, modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            values = (
-                fecha_cotizacion, fecha_vencimiento, origen, nombre_contacto,
-                email, modo_pago, metodo_pago, num_cuotas, detalle, total, valor_iva
-            )
-            cursor.execute(query, values)
-            id_cotizacion = cursor.lastrowid
-            conn.commit()
-            return id_cotizacion
-        except Exception as e:
-            print(f"Error al insertar cotización: {e}")
-            conn.rollback()
-            return None
-        finally:
-            cursor.close()
-            conn.close()
-    return None
-
-def insert_detalle_cotizacion(id_cotizacion, id_curso, cantidad, valor_curso, valor_total):
-    """
-    Inserta un detalle de cotización en la base de datos.
-    """
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO detalle_cotizacion (
-                    id_cotizacion, id_curso, cantidad, valor_curso, valor_total
-                ) VALUES (%s, %s, %s, %s, %s)
-            """
-            values = (id_cotizacion, id_curso, cantidad, valor_curso, valor_total)
-            cursor.execute(query, values)
-            conn.commit()
-            return True
-        except Exception as e:
-            print(f"Error al insertar detalle de cotización: {e}")
-            conn.rollback()
-            return False
-        finally:
-            cursor.close()
-            conn.close()
-    return False
 
 def get_cotizacion_details(id_cotizacion):
     """
@@ -2208,9 +2211,14 @@ def get_cotizacion_details(id_cotizacion):
     if conn:
         try:
             cursor = conn.cursor()
-            # Obtener la cotización
+            # Obtener la cotización con encargado
             query_cotizacion = """
-                SELECT * FROM cotizacion WHERE id_cotizacion = %s
+                SELECT 
+                    id_cotizacion, fecha_cotizacion, fecha_vencimiento, 
+                    origen, nombre_contacto, email, modo_pago, metodo_pago, 
+                    num_cuotas, detalle, total, encargado
+                FROM cotizacion 
+                WHERE id_cotizacion = %s
             """
             cursor.execute(query_cotizacion, (id_cotizacion,))
             cotizacion = cursor.fetchone()
@@ -2236,6 +2244,7 @@ def get_cotizacion_details(id_cotizacion):
             cursor.close()
             conn.close()
     return None
+
 
 # =======================================
 #           AUTENTICACION 

@@ -2,8 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, timedelta
 from database.queries import (
-    insert_cotizacion,
-    insert_detalle_cotizacion,
+    insertar_cotizacion,
     fetch_courses,
 )
 from helpers.document_generator import generate_cotizacion_doc
@@ -16,7 +15,7 @@ class CotizacionWindow(ttk.Frame):
         
         # Configurar la ventana principal
         self.parent.title("Nueva Cotización")
-        self.parent.geometry("800x600")  # Tamaño inicial de la ventana
+        self.parent.state("zoomed")
         
         # Empaquetar el frame principal
         self.pack(fill='both', expand=True)
@@ -27,41 +26,50 @@ class CotizacionWindow(ttk.Frame):
         # Frame principal con padding
         main_frame = ttk.Frame(self, padding="10")
         main_frame.pack(fill='both', expand=True)
+        try:
+            main_frame.iconbitmaop("assets/logo1.ico")
+        except Exception as e:
+            print(f"Error al cargar el ícono: {str(e)}")
         
-        # Sección de información general
-        info_frame = ttk.LabelFrame(main_frame, text="Información General", padding="5")
+        # Sección de información general organizada horizontalmente
+        info_frame = ttk.LabelFrame(main_frame, text="Información General", padding="10")
         info_frame.pack(fill='x', padx=5, pady=5)
         
-        # Grid para campos
-        for i, (label, var_name) in enumerate([
-            ("Origen:", "origen"),
-            ("Contacto:", "contacto"),
-            ("Email:", "email")
-        ]):
-            ttk.Label(info_frame, text=label).grid(row=i, column=0, padx=5, pady=5, sticky='e')
-            entry = ttk.Entry(info_frame, width=40)
-            entry.grid(row=i, column=1, padx=5, pady=5, sticky='w')
+        # Configuración de columnas para organizar los campos horizontalmente
+        for col in range(4):
+            info_frame.columnconfigure(col, weight=1, pad=5)
+        
+        # Campos de Información General distribuidos en dos filas y dos columnas
+        labels = ["Origen:", "Contacto:", "Email:", "Encargado:"]
+        var_names = ["origen", "contacto", "email", "encargado"]
+        
+        for i, (label, var_name) in enumerate(zip(labels, var_names)):
+            row = i // 2
+            column = (i % 2) * 2  # 0 y 2 para las etiquetas
+            ttk.Label(info_frame, text=label).grid(row=row, column=column, padx=5, pady=5, sticky='e')
+            entry = ttk.Entry(info_frame, width=30)
+            entry.grid(row=row, column=column + 1, padx=5, pady=5, sticky='w')
             setattr(self, var_name + "_entry", entry)
         
         # Modo de pago
-        ttk.Label(info_frame, text="Modo de Pago:").grid(row=3, column=0, padx=5, pady=5, sticky='e')
+        ttk.Label(info_frame, text="Modo de Pago:").grid(row=2, column=0, padx=5, pady=5, sticky='e')
         self.modo_pago_var = tk.StringVar(value="Al Contado")
         modo_pago_frame = ttk.Frame(info_frame)
-        modo_pago_frame.grid(row=3, column=1, sticky='w')
+        modo_pago_frame.grid(row=2, column=1, padx=5, pady=5, sticky='w')
         ttk.Radiobutton(modo_pago_frame, text="Al Contado", variable=self.modo_pago_var, 
-                       value="Al Contado", command=self.toggle_cuotas).pack(side='left')
+                       value="Al Contado", command=self.toggle_cuotas).pack(side='left', padx=5)
         ttk.Radiobutton(modo_pago_frame, text="Pagaré", variable=self.modo_pago_var,
-                       value="Pagaré", command=self.toggle_cuotas).pack(side='left')
+                       value="Pagaré", command=self.toggle_cuotas).pack(side='left', padx=5)
         
         # Método de pago y número de cuotas
         self.metodo_pago_frame = ttk.Frame(info_frame)
-        self.metodo_pago_frame.grid(row=4, column=0, columnspan=2, sticky='w', padx=5)
+        self.metodo_pago_frame.grid(row=2, column=2, columnspan=2, sticky='w', padx=5, pady=5)
         self.metodo_pago_var = tk.StringVar()
         self.num_cuotas_var = tk.StringVar()
         self.setup_metodo_pago()
         
         # Sección de detalles
-        detalles_frame = ttk.LabelFrame(main_frame, text="Detalles de Cotización")
+        detalles_frame = ttk.LabelFrame(main_frame, text="Detalles de Cotización", padding="10")
         detalles_frame.pack(fill='both', expand=True, padx=5, pady=5)
         
         # Frame para agregar detalles
@@ -71,7 +79,7 @@ class CotizacionWindow(ttk.Frame):
         # Combobox para cursos
         self.cursos = fetch_courses()
         self.curso_var = tk.StringVar()
-        self.curso_combo = ttk.Combobox(add_frame, textvariable=self.curso_var, width=40)
+        self.curso_combo = ttk.Combobox(add_frame, textvariable=self.curso_var, width=40, state="readonly")
         self.curso_combo['values'] = [curso[1] for curso in self.cursos]
         self.curso_combo.pack(side='left', padx=5)
         
@@ -83,19 +91,21 @@ class CotizacionWindow(ttk.Frame):
         # Botón agregar
         ttk.Button(add_frame, text="Agregar", command=self.agregar_detalle).pack(side='left', padx=5)
         
-        # Tabla de detalles
-        self.tabla = ttk.Treeview(detalles_frame, columns=('curso', 'cantidad', 'valor_unit', 'valor_total'),
+        # Tabla de detalles con columna adicional para Código del Curso
+        self.tabla = ttk.Treeview(detalles_frame, columns=('codigo_curso', 'curso', 'cantidad', 'valor_unit', 'valor_total'),
                                  show='headings', height=5)
+        self.tabla.heading('codigo_curso', text='Código del Curso')
         self.tabla.heading('curso', text='Curso')
         self.tabla.heading('cantidad', text='Cantidad')
         self.tabla.heading('valor_unit', text='Valor Unitario')
         self.tabla.heading('valor_total', text='Valor Total')
         
         # Configurar anchos de columna
+        self.tabla.column('codigo_curso', width=100, anchor='center')
         self.tabla.column('curso', width=300)
-        self.tabla.column('cantidad', width=100)
-        self.tabla.column('valor_unit', width=150)
-        self.tabla.column('valor_total', width=150)
+        self.tabla.column('cantidad', width=100, anchor='center')
+        self.tabla.column('valor_unit', width=150, anchor='e')
+        self.tabla.column('valor_total', width=150, anchor='e')
         
         self.tabla.pack(fill='both', expand=True, padx=5, pady=5)
         
@@ -113,22 +123,20 @@ class CotizacionWindow(ttk.Frame):
         totales_frame.pack(fill='x', padx=5, pady=5)
         
         self.subtotal_var = tk.StringVar(value="$0")
-        self.iva_var = tk.StringVar(value="$0")
         self.total_var = tk.StringVar(value="$0")
         
         # Alinear totales a la derecha
         for label, var in [
             ("Total Neto:", self.subtotal_var),
-            ("IVA (19%):", self.iva_var),
             ("Total:", self.total_var)
         ]:
             frame = ttk.Frame(totales_frame)
             frame.pack(side='right', padx=10)
             ttk.Label(frame, text=label).pack(side='left')
-            ttk.Label(frame, textvariable=var, width=15).pack(side='left')
+            ttk.Label(frame, textvariable=var, width=15, anchor='e').pack(side='left')
         
         # Observaciones
-        obs_frame = ttk.LabelFrame(main_frame, text="Observaciones")
+        obs_frame = ttk.LabelFrame(main_frame, text="Observaciones", padding="10")
         obs_frame.pack(fill='x', padx=5, pady=5)
         self.observaciones_text = tk.Text(obs_frame, height=4)
         self.observaciones_text.pack(fill='x', padx=5, pady=5)
@@ -140,36 +148,43 @@ class CotizacionWindow(ttk.Frame):
                   command=self.generar_cotizacion).pack(side='right', padx=5)
         ttk.Button(buttons_frame, text="Limpiar", 
                   command=self.limpiar_formulario).pack(side='right', padx=5)
-    
+
     def setup_metodo_pago(self):
         """Configura los widgets de método de pago"""
+        # Como el método de pago no se solicita en la UI, lo configuramos aquí de forma programática
         for widget in self.metodo_pago_frame.winfo_children():
             widget.destroy()
-            
-        ttk.Label(self.metodo_pago_frame, text="Método de Pago:").pack(side='left', padx=5)
-        if self.modo_pago_var.get() == "Al Contado":
-            metodos = ["Efectivo", "Transferencia", "Tarjeta"]
-        else:
-            metodos = ["Pagaré"]
-            
-        self.metodo_combo = ttk.Combobox(self.metodo_pago_frame, 
-                                        textvariable=self.metodo_pago_var,
-                                        values=metodos, 
-                                        state="readonly",
-                                        width=15)
-        self.metodo_combo.pack(side='left', padx=5)
         
-        if self.modo_pago_var.get() == "Pagaré":
+        # Definir el método de pago basado en el modo de pago
+        modo_pago = self.modo_pago_var.get()
+        if modo_pago == "Al Contado":
+            metodo_pago = "Transferencia"  # Valor por defecto para Al Contado
+            self.num_cuotas_var.set("")  # No se requieren cuotas
+        elif modo_pago == "Pagaré":
+            metodo_pago = "Pagaré"
+            # Mantener el campo de número de cuotas para Pagaré
+        else:
+            metodo_pago = "N/A"
+        
+        # Almacenar el método de pago en una variable de instancia
+        self.metodo_pago_var.set(metodo_pago)
+        
+        # Mostrar u ocultar el campo de cuotas según el modo de pago
+        if modo_pago == "Pagaré":
             ttk.Label(self.metodo_pago_frame, text="N° Cuotas:").pack(side='left', padx=5)
             self.cuotas_entry = ttk.Entry(self.metodo_pago_frame, 
                                         textvariable=self.num_cuotas_var,
                                         width=5)
             self.cuotas_entry.pack(side='left', padx=5)
-    
+        else:
+            # Si no es Pagaré, eliminar el campo de cuotas si existe
+            for widget in self.metodo_pago_frame.winfo_children():
+                widget.destroy()
+
     def toggle_cuotas(self):
-        """Actualiza la UI cuando cambia el modo de pago"""
+        """Actualiza la UI cuando cambia el modo de pago y configura el método de pago"""
         self.setup_metodo_pago()
-        
+
     def agregar_detalle(self):
         """Agrega un detalle a la cotización"""
         try:
@@ -187,9 +202,10 @@ class CotizacionWindow(ttk.Frame):
             valor_unit = curso[7]  # Asumiendo que el valor está en esta posición
             valor_total = valor_unit * cantidad
             
-            # Agregar a la tabla
+            # Agregar a la tabla incluyendo el código del curso
             self.tabla.insert('', 'end', values=(
-                curso[1],  # nombre_curso
+                curso[0],  # Código del curso
+                curso[1],  # Nombre del curso
                 cantidad,
                 f"${valor_unit:,.0f}",
                 f"${valor_total:,.0f}"
@@ -198,6 +214,7 @@ class CotizacionWindow(ttk.Frame):
             # Guardar detalle para procesar después
             self.detalles.append({
                 'id_curso': curso[0],
+                'curso': curso[1],  # Nombre del curso
                 'cantidad': cantidad,
                 'valor_curso': valor_unit,
                 'valor_total': valor_total
@@ -207,7 +224,7 @@ class CotizacionWindow(ttk.Frame):
             
         except ValueError:
             messagebox.showerror("Error", "La cantidad debe ser un número válido")
-    
+
     def eliminar_detalle(self):
         """Elimina el detalle seleccionado"""
         selected = self.tabla.selection()
@@ -219,22 +236,22 @@ class CotizacionWindow(ttk.Frame):
         self.tabla.delete(selected[0])
         del self.detalles[idx]
         self.actualizar_totales()
-    
+
     def actualizar_totales(self):
         """Actualiza los totales de la cotización"""
         subtotal = sum(detalle['valor_total'] for detalle in self.detalles)
-        iva = int(subtotal * 0.19)
-        total = subtotal + iva
+        
+        total = subtotal 
         
         self.subtotal_var.set(f"${subtotal:,.0f}")
-        self.iva_var.set(f"${iva:,.0f}")
         self.total_var.set(f"${total:,.0f}")
-    
+
     def limpiar_formulario(self):
         """Limpia todos los campos del formulario"""
         self.origen_entry.delete(0, 'end')
         self.contacto_entry.delete(0, 'end')
         self.email_entry.delete(0, 'end')
+        self.encargado_entry.delete(0, 'end')
         self.modo_pago_var.set("Al Contado")
         self.metodo_pago_var.set("")
         self.num_cuotas_var.set("")
@@ -246,61 +263,73 @@ class CotizacionWindow(ttk.Frame):
             self.tabla.delete(item)
         self.detalles.clear()
         self.actualizar_totales()
-    
+        self.setup_metodo_pago()  # Reiniciar método de pago
+
     def generar_cotizacion(self):
         """Genera la cotización y el documento"""
         try:
             # Validar campos requeridos
-            if not self.origen_entry.get().strip():
-                messagebox.showerror("Error", "El origen es requerido")
-                return
-            if not self.contacto_entry.get().strip():
-                messagebox.showerror("Error", "El contacto es requerido")
-                return
-            if not self.email_entry.get().strip():
-                messagebox.showerror("Error", "El email es requerido")
-                return
+            for var_name, field_name in [
+                ("origen_entry", "El origen"),
+                ("contacto_entry", "El contacto"),
+                ("email_entry", "El email"),
+                ("encargado_entry", "El encargado")
+            ]:
+                value = getattr(self, var_name).get().strip()
+                if not value:
+                    messagebox.showerror("Error", f"{field_name} es requerido")
+                    return
             if not self.detalles:
                 messagebox.showerror("Error", "Debe agregar al menos un detalle")
                 return
             
             # Preparar datos
             fecha_cotizacion = datetime.now()
-            fecha_vencimiento = fecha_cotizacion + timedelta(days=30)  # Validez de 30 días
+            fecha_vencimiento = fecha_cotizacion + timedelta(days=30)
             
             subtotal = sum(detalle['valor_total'] for detalle in self.detalles)
-            iva = int(subtotal * 0.19)
-            total = subtotal + iva
             
-            # Insertar cotización
-            id_cotizacion = insert_cotizacion(
+            total = subtotal 
+            
+            # Definir el método de pago basado en el modo de pago
+            modo_pago = self.modo_pago_var.get()
+            if modo_pago == "Al Contado":
+                metodo_pago = "Transferencia"  # Valor por defecto o puedes elegir otro
+                num_cuotas = None  # No se requieren cuotas
+            elif modo_pago == "Pagaré":
+                metodo_pago = "Pagaré"
+                try:
+                    num_cuotas = int(self.num_cuotas_var.get())
+                    if num_cuotas <= 0:
+                        messagebox.showerror("Error", "El número de cuotas debe ser mayor a 0")
+                        return
+                except ValueError:
+                    messagebox.showerror("Error", "Debe ingresar un número válido de cuotas")
+                    return
+            else:
+                metodo_pago = "N/A"
+                num_cuotas = None
+            
+            # Insertar cotización con todos los detalles
+            id_cotizacion = insertar_cotizacion(
                 fecha_cotizacion=fecha_cotizacion,
                 fecha_vencimiento=fecha_vencimiento,
                 origen=self.origen_entry.get().strip(),
                 nombre_contacto=self.contacto_entry.get().strip(),
                 email=self.email_entry.get().strip(),
-                modo_pago=self.modo_pago_var.get(),
-                metodo_pago=self.metodo_pago_var.get(),
-                num_cuotas=int(self.num_cuotas_var.get()) if self.num_cuotas_var.get() else None,
+                encargado=self.encargado_entry.get().strip(),
+                modo_pago=modo_pago,
+                metodo_pago=metodo_pago,
+                num_cuotas=num_cuotas,
                 detalle=self.observaciones_text.get('1.0', 'end-1c'),
                 total=total,
-                valor_iva=iva
+                detalles_cursos=self.detalles
             )
             
             if not id_cotizacion:
                 messagebox.showerror("Error", "No se pudo crear la cotización")
                 return
-            
-            # Insertar detalles
-            for detalle in self.detalles:
-                insert_detalle_cotizacion(
-                    id_cotizacion=id_cotizacion,
-                    id_curso=detalle['id_curso'],
-                    cantidad=detalle['cantidad'],
-                    valor_curso=detalle['valor_curso'],
-                    valor_total=detalle['valor_total']
-                )
-            
+                
             # Generar documento
             cotizacion_data = {
                 'id_cotizacion': id_cotizacion,
@@ -309,12 +338,12 @@ class CotizacionWindow(ttk.Frame):
                 'origen': self.origen_entry.get().strip(),
                 'nombre_contacto': self.contacto_entry.get().strip(),
                 'email': self.email_entry.get().strip(),
-                'modo_pago': self.modo_pago_var.get(),
-                'metodo_pago': self.metodo_pago_var.get(),
-                'num_cuotas': self.num_cuotas_var.get() if self.num_cuotas_var.get() else None,
+                'encargado': self.encargado_entry.get().strip(),
+                'modo_pago': modo_pago,
+                'metodo_pago': metodo_pago,
+                'num_cuotas': num_cuotas,
                 'detalle': self.observaciones_text.get('1.0', 'end-1c'),
                 'total': total,
-                'valor_iva': iva
             }
             
             doc_path = generate_cotizacion_doc(cotizacion_data, self.detalles, parent_window=self)
@@ -329,3 +358,5 @@ class CotizacionWindow(ttk.Frame):
             
         except Exception as e:
             messagebox.showerror("Error", f"Error al generar la cotización: {str(e)}")
+            import traceback
+            traceback.print_exc()  # Agregar este print para debugging

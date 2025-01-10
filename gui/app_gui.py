@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox,filedialog
 import os
 from PIL import Image, ImageTk
 from datetime import datetime
@@ -12,6 +12,8 @@ import math
 from functools import wraps
 from tkcalendar import DateEntry
 from .cotizacion_window import CotizacionWindow
+from helpers.doc_generator import generate_pagare_docx
+from helpers.num_a_let import numero_a_letras
 
 
 # ============================
@@ -78,7 +80,7 @@ from database.queries import (
     delete_student_by_rut,fetch_students_by_name_apellido,validate_alumno_exists,
 
     fetch_payments,insert_payment,fetch_payments_by_inscription,insert_payment_contribution,        #Pagos
-    update_payment_status,
+    update_payment_status,fetch_alumno_curso_inscripcion,
 
     insert_invoice,fetch_invoices,                                                                  #Facturas
     
@@ -135,8 +137,8 @@ class App:
         self.root.deiconify()
 
         # 5. Mostramos directamente el LoginFrame (o la interfaz principal)
-        #self.show_login_frame()
-        self.setup_main_interface()
+        self.show_login_frame()
+
     def setup_styles(self):
         """
         Configuración de estilos para toda la aplicación.
@@ -966,7 +968,7 @@ class App:
             command=save_enrollment
         ).pack()
  
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def delete_inscription_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Inscripción")
@@ -1091,7 +1093,7 @@ class App:
             command=delete_window.destroy
         ).pack(side=tk.LEFT, padx=5)
     
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def update_inscription_window(self):
         window = tk.Toplevel(self.root)
         window.title("Actualizar Inscripción")
@@ -1380,7 +1382,7 @@ class App:
             self.tree_scroll_horizontal.pack(side=tk.BOTTOM, fill=tk.X)
             self.tree.configure(xscrollcommand=self.tree_scroll_horizontal.set)
     
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def add_course_window(self):
         """
         Ventana para añadir un nuevo curso, ajustada con el campo 'Valor' y sin fondo blanco.
@@ -1388,20 +1390,23 @@ class App:
         window = tk.Toplevel(self.root)
         window.title("Añadir Curso")
         window.configure(bg="#f0f5ff")
-        window.grab_set()
-        window.focus_force()
-        try:
-            window.iconbitmap('assets/logo1.ico')
-        except Exception as e:
-            print(f"Error al cargar ícono: {e}")
-
-        # Dimensiones y posición de la ventana
+        
+        # Ocultar la ventana inicialmente
+        window.withdraw()
+        
+        # Posicionar la ventana en el centro de la pantalla
         width, height = 1000, 500  # Ajuste de tamaño
         scr_w = window.winfo_screenwidth()
         scr_h = window.winfo_screenheight()
         x = (scr_w // 2) - (width // 2)
         y = (scr_h // 2) - (height // 2)
         window.geometry(f"{width}x{height}+{x}+{y}")
+        
+        # Agregar el icono
+        try:
+            window.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar ícono: {e}")
 
         # Frame principal
         main_frame = tk.Frame(window, bg="#f0f5ff", padx=30, pady=20)
@@ -1445,8 +1450,7 @@ class App:
                 entry.grid(row=row, column=col + 1, padx=(0, 20), pady=10, sticky="w")
                 return entry
             elif is_option:
-                entry = tk.OptionMenu(parent, var, *options)
-                entry.config(width=20, font=("Helvetica", 10))
+                entry = ttk.Combobox(parent, values=options, textvariable=var, state="readonly", width=30, font=("Helvetica", 10))
                 entry.grid(row=row, column=col + 1, padx=(0, 20), pady=10, sticky="w")
                 return entry
             else:
@@ -1520,9 +1524,9 @@ class App:
                 codigo_sence = int(sence_text) if sence_text else None
                 codigo_elearn = int(elearn_text) if elearn_text else None
                 horas_cron = float(horas_cron_text) if horas_cron_text else None
-                valor_curso = float(valor_text) if valor_text else None
+                valor_curso = int(valor_text) if valor_text else None  # Cambiado a int para 'valor'
                 duracion_dias = int(duracion_dias_text) if duracion_dias_text else None
-                valor_alumno_sence = float(valor_alumno_sence_text) if valor_alumno_sence_text else None
+                valor_alumno_sence = int(valor_alumno_sence_text) if valor_alumno_sence_text else None  # Cambiado a int para 'valor_alumno_sence'
             except ValueError:
                 messagebox.showerror(
                     "Error",
@@ -1531,11 +1535,33 @@ class App:
                 )
                 return
 
+            # Función para convertir fechas al formato YYYY-MM-DD
+            def convert_date(date_str):
+                if date_str and date_str != "":
+                    try:
+                        fecha = datetime.strptime(date_str, '%Y-%m-%d')
+                        return fecha.strftime('%Y-%m-%d')
+                    except ValueError:
+                        return None
+                return None
+
+            fecha_resolucion_converted = convert_date(fecha_resolucion)
+            fecha_vigencia_converted = convert_date(fecha_vigencia)
+
+            # Verificar fechas válidas
+            if (fecha_resolucion and not fecha_resolucion_converted) or (fecha_vigencia and not fecha_vigencia_converted):
+                messagebox.showerror(
+                    "Error",
+                    "Formato de fecha inválido. Use YYYY-MM-DD.",
+                    parent=window
+                )
+                return
+
             # Guardar curso (llama a tu función insert_course)
             success = insert_course(
                 id_curso, nombre_curso, modalidad, codigo_sence, codigo_elearn,
                 horas_cron, valor_curso, duracion_dias, tipo_curso, resolucion,
-                fecha_resolucion, fecha_vigencia, valor_alumno_sence
+                fecha_resolucion_converted, fecha_vigencia_converted, valor_alumno_sence
             )
 
             if success:
@@ -1560,7 +1586,13 @@ class App:
         )
         save_button.grid(row=9, column=0, columnspan=4, pady=30)
 
-    #@requiere_rol_gui("admin")
+        # Forzar la actualización de la interfaz para renderizar todos los widgets
+        window.update_idletasks()
+
+        # Mostrar la ventana después de que todo esté construido
+        window.deiconify()
+
+    @requiere_rol_gui("admin")
     def edit_course_window(self):
         window = tk.Toplevel(self.root)
         window.title("Editar Curso")
@@ -1807,20 +1839,20 @@ class App:
             # Convertir valores numéricos
             try:
                 curso_data = {
-                    'id_curso': int(id_curso),
+                    'id_curso': id_curso,  # Eliminada la conversión a int
                     'nombre_curso': nombre_var.get().strip(),
                     'modalidad': modalidad_var.get().strip(),
                     'codigo_sence': int(codigo_sence_var.get()) if codigo_sence_var.get().strip() else None,
                     'codigo_elearning': int(codigo_elearning_var.get()) if codigo_elearning_var.get().strip() else None,
-                    'horas_cronologicas': float(horas_cronologicas_var.get()) if horas_cronologicas_var.get().strip() else None,
+                    'horas_cronologicas': int(horas_cronologicas_var.get()) if horas_cronologicas_var.get().strip() else None,  # Cambiado a int si es necesario
                     'horas_pedagogicas': float(horas_pedagogicas_var.get()) if horas_pedagogicas_var.get().strip() else None,
                     'duracionDias': int(duracion_dias_var.get()) if duracion_dias_var.get().strip() else None,
                     'tipo_curso': tipo_curso_var.get().strip() or None,
                     'resolucion': resolucion_var.get().strip() or None,
                     'fecha_resolucion': convert_date(fecha_resolucion_var.get()),
                     'fecha_vigencia': convert_date(fecha_vigencia_var.get()),
-                    'valor': float(valor_var.get()) if valor_var.get().strip() else None,
-                    'valor_alumno_sence': float(valor_alumno_sence_var.get()) if valor_alumno_sence_var.get().strip() else None
+                    'valor': int(valor_var.get()) if valor_var.get().strip() else None,  # Cambiado a int si es necesario
+                    'valor_alumno_sence': int(valor_alumno_sence_var.get()) if valor_alumno_sence_var.get().strip() else None  # Cambiado a int para decimal(10,0)
                 }
             except ValueError:
                 messagebox.showerror(
@@ -1856,7 +1888,7 @@ class App:
             command=save_edited_course
         ).pack()
 
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def delete_course_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Curso") 
@@ -2254,7 +2286,7 @@ class App:
             command=window.destroy
         ).pack(side=tk.LEFT, padx=5)
 
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def delete_student_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Alumno")
@@ -2500,7 +2532,7 @@ class App:
             command=search_window.destroy
         ).pack(side=tk.LEFT, padx=5)
     
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def edit_student_window(self):
             """
             Ventana para editar datos de un alumno existente.
@@ -2787,11 +2819,12 @@ class App:
     def add_payment_window(self):
         window = tk.Toplevel(self.root)
         window.title("Añadir Pago")
-        window.geometry("900x500")  # Aumentado para los nuevos campos
+        window.geometry("900x550")
         window.configure(bg="#f0f5ff")
         window.grab_set()
         window.focus_force()
 
+        # Intentar ícono (opcional)
         try:
             window.iconbitmap('assets/logo1.ico')
         except Exception as e:
@@ -2801,10 +2834,9 @@ class App:
         sw = window.winfo_screenwidth()
         sh = window.winfo_screenheight()
         x = (sw // 2) - (900 // 2)
-        y = (sh // 2) - (500 // 2)
-        window.geometry(f"900x500+{x}+{y}")
+        y = (sh // 2) - (550 // 2)
+        window.geometry(f"900x550+{x}+{y}")
 
-        # Frame principal
         main_frame = ttk.Frame(window, padding="20")
         main_frame.pack(fill='both', expand=True)
 
@@ -2817,30 +2849,14 @@ class App:
         )
         title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
 
-        # Frame para la información de inscripción
+        # --- Frame: Información de inscripción ---
         inscription_frame = ttk.LabelFrame(main_frame, text="Información de Inscripción", padding="10")
         inscription_frame.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, 10))
-
-        def fetch_inscription_info():
-            try:
-                inscripcion_id = int(inscription_entry.get())
-                # Aquí deberías tener una función que busque la información de la inscripción
-                # y devuelva los detalles
-                info = fetch_inscription_details(inscripcion_id)
-                if info:
-                    student_label.config(text=f"Alumno: {info['nombre_alumno']}")
-                    course_label.config(text=f"Curso: {info['nombre_curso']}")
-                    acta_label.config(text=f"N° Acta: {info['numero_acta']}")
-                else:
-                    messagebox.showerror("Error", "Inscripción no encontrada", parent=window)
-            except ValueError:
-                messagebox.showerror("Error", "ID de inscripción inválido", parent=window)
 
         ttk.Label(inscription_frame, text="ID Inscripción:").grid(row=0, column=0, padx=5)
         inscription_entry = ttk.Entry(inscription_frame, width=10)
         inscription_entry.grid(row=0, column=1, padx=5)
-        ttk.Button(inscription_frame, text="Buscar", command=fetch_inscription_info).grid(row=0, column=2, padx=5)
-        
+
         student_label = ttk.Label(inscription_frame, text="Alumno: ")
         student_label.grid(row=0, column=3, padx=20)
         course_label = ttk.Label(inscription_frame, text="Curso: ")
@@ -2848,55 +2864,115 @@ class App:
         acta_label = ttk.Label(inscription_frame, text="N° Acta: ")
         acta_label.grid(row=0, column=5, padx=20)
 
-        # Frame para los detalles del pago
+        # Diccionario donde guardaremos la info recuperada:
+        fetched_data = {
+            "id_inscripcion": None,
+            "numero_acta": None,
+            "fecha_inscripcion": None,
+            "anio_inscripcion": None,
+            "rut_alumno": None,
+            "direccion_alumno": None,
+            "nombre_alumno": None,
+            "nombre_curso": None,
+            "valor_curso": 0.0,
+        }
+
+        def fetch_inscription_info():
+            """Busca la inscripción, alumno y curso, y llena la interfaz."""
+            try:
+                inscripcion_id = int(inscription_entry.get())
+            except ValueError:
+                messagebox.showerror("Error", "ID de inscripción inválido", parent=window)
+                return
+
+            info = fetch_alumno_curso_inscripcion(inscripcion_id)
+            if not info:
+                messagebox.showerror("Error", "Inscripción no encontrada", parent=window)
+                return
+
+            # Llenamos fetched_data
+            fetched_data["id_inscripcion"] = info["id_inscripcion"]
+            fetched_data["numero_acta"] = info["numero_acta"]
+            fetched_data["fecha_inscripcion"] = info["fecha_inscripcion"]
+            fetched_data["anio_inscripcion"] = info["anio_inscripcion"]
+            fetched_data["rut_alumno"] = info["rut_alumno"]
+            fetched_data["direccion_alumno"] = info["direccion_alumno"]
+            fetched_data["nombre_alumno"] = info["nombre_alumno"]
+            fetched_data["nombre_curso"] = info["nombre_curso"]
+            fetched_data["valor_curso"] = info["valor_curso"] or 0.0
+
+            # Mostramos en los labels
+            student_label.config(text=f"Alumno: {fetched_data['nombre_alumno']}")
+            course_label.config(text=f"Curso: {fetched_data['nombre_curso']}")
+            acta_label.config(text=f"N° Acta: {fetched_data['numero_acta']}")
+            
+            # Actualizar el campo de valor con el valor del curso
+            valor_entry.delete(0, tk.END)
+            valor_entry.insert(0, str(fetched_data["valor_curso"]))
+
+        ttk.Button(inscription_frame, text="Buscar", command=fetch_inscription_info).grid(row=0, column=2, padx=5)
+
+        # --- Frame: Detalles del pago ---
         payment_frame = ttk.LabelFrame(main_frame, text="Detalles del Pago", padding="10")
         payment_frame.grid(row=2, column=0, columnspan=4, sticky="ew", pady=10)
 
-        # Variables para controlar el estado de los campos
         tipo_pago_var = tk.StringVar()
         modalidad_pago_var = tk.StringVar()
         num_cuotas_var = tk.StringVar(value="1")
 
-        def on_tipo_pago_change(*args):
-            if tipo_pago_var.get() == "contado":
-                num_cuotas_var.set("1")
-                cuotas_entry.config(state="disabled")
-            else:
-                cuotas_entry.config(state="normal")
-
-        def on_modalidad_change(*args):
-            if modalidad_pago_var.get() == "completo":
-                contribuciones_frame.grid_remove()
-            else:
-                contribuciones_frame.grid()
-
-        # Primera fila de detalles del pago
         ttk.Label(payment_frame, text="Tipo de Pago:").grid(row=0, column=0, padx=5, pady=5)
-        tipo_pago_combo = ttk.Combobox(payment_frame, textvariable=tipo_pago_var, 
-                                    values=["contado", "pagare"], 
-                                    state="readonly", width=15)
+        tipo_pago_combo = ttk.Combobox(payment_frame, textvariable=tipo_pago_var,
+                                       values=["contado", "pagare"],
+                                       state="readonly", width=15)
         tipo_pago_combo.grid(row=0, column=1, padx=5, pady=5)
-        tipo_pago_var.trace('w', on_tipo_pago_change)
 
         ttk.Label(payment_frame, text="Modalidad:").grid(row=0, column=2, padx=5, pady=5)
         modalidad_combo = ttk.Combobox(payment_frame, textvariable=modalidad_pago_var,
-                                    values=["completo", "diferido"],
-                                    state="readonly", width=15)
+                                       values=["completo", "diferido"],
+                                       state="readonly", width=15)
         modalidad_combo.grid(row=0, column=3, padx=5, pady=5)
-        modalidad_pago_var.trace('w', on_modalidad_change)
 
         ttk.Label(payment_frame, text="Valor Total:").grid(row=0, column=4, padx=5, pady=5)
         valor_entry = ttk.Entry(payment_frame, width=15)
         valor_entry.grid(row=0, column=5, padx=5, pady=5)
 
-        # Segunda fila de detalles del pago
         ttk.Label(payment_frame, text="N° Cuotas:").grid(row=1, column=0, padx=5, pady=5)
         cuotas_entry = ttk.Entry(payment_frame, textvariable=num_cuotas_var, width=15)
         cuotas_entry.grid(row=1, column=1, padx=5, pady=5)
 
-        # Frame para contribuciones (visible solo si modalidad es "diferido")
+        # Mes de Inicio
+        ttk.Label(payment_frame, text="Mes de Inicio:").grid(row=1, column=2, padx=5, pady=5)
+        mes_inicio_var = tk.StringVar()
+        mes_inicio_entry = ttk.Entry(payment_frame, textvariable=mes_inicio_var, width=15)
+        mes_inicio_entry.grid(row=1, column=3, padx=5, pady=5)
+
+        def on_tipo_pago_change(*args):
+            """
+            Muestra u oculta el botón 'Generar Contrato Pagaré'
+            según sea 'pagare' o 'contado'.
+            """
+            if tipo_pago_var.get() == "pagare":
+                cuotas_entry.config(state="normal")
+                generate_button.grid(row=5, column=0, columnspan=4, pady=10)
+            else:
+                num_cuotas_var.set("1")
+                cuotas_entry.config(state="disabled")
+                generate_button.grid_remove()
+
+        def on_modalidad_change(*args):
+            """Muestra/oculta frame de contribuciones si es 'diferido'."""
+            if modalidad_pago_var.get() == "diferido":
+                contribuciones_frame.grid()
+            else:
+                contribuciones_frame.grid_remove()
+
+        tipo_pago_var.trace("w", on_tipo_pago_change)
+        modalidad_pago_var.trace("w", on_modalidad_change)
+
+        # --- Frame: Distribución (diferido) ---
         contribuciones_frame = ttk.LabelFrame(main_frame, text="Distribución del Pago", padding="10")
         contribuciones_frame.grid(row=3, column=0, columnspan=4, sticky="ew", pady=10)
+        contribuciones_frame.grid_remove()  # Oculto por defecto
 
         ttk.Label(contribuciones_frame, text="Alumno:").grid(row=0, column=0, padx=5, pady=5)
         alumno_entry = ttk.Entry(contribuciones_frame, width=15)
@@ -2910,8 +2986,12 @@ class App:
         sence_entry = ttk.Entry(contribuciones_frame, width=15)
         sence_entry.grid(row=0, column=5, padx=5, pady=5)
 
+        # Variables para guardar (id_pago, id_pagare)
+        created_id_pago = [None]
+        created_id_pagare = [None]
+
         def validate_and_save():
-            # Validaciones básicas
+            """Inserta el pago en BD y, si es 'diferido', registra contribuciones."""
             if not inscription_entry.get():
                 messagebox.showerror("Error", "Debe especificar una inscripción", parent=window)
                 return
@@ -2920,73 +3000,128 @@ class App:
                 messagebox.showerror("Error", "Debe especificar un valor total", parent=window)
                 return
 
+            # Parsear
             try:
-                id_inscripcion = int(inscription_entry.get())
+                id_insc = int(inscription_entry.get())
                 valor_total = float(valor_entry.get())
-                num_cuotas = int(num_cuotas_var.get())
+                n_cuotas = int(num_cuotas_var.get())
             except ValueError:
                 messagebox.showerror("Error", "Valores numéricos inválidos", parent=window)
                 return
 
-            # Si es diferido, validar que la suma de contribuciones sea igual al valor total
-            if modalidad_pago_var.get() == "diferido":
+            tipo_pago_sel = tipo_pago_var.get()
+            modalidad_sel = modalidad_pago_var.get()
+
+            # Validar contribuciones si 'diferido'
+            if modalidad_sel == "diferido":
                 try:
                     monto_alumno = float(alumno_entry.get() or 0)
                     monto_empresa = float(empresa_entry.get() or 0)
                     monto_sence = float(sence_entry.get() or 0)
-                    total_contribuciones = monto_alumno + monto_empresa + monto_sence
-                    
-                    if not math.isclose(total_contribuciones, valor_total, rel_tol=1e-9):
-                        messagebox.showerror("Error", 
-                            "La suma de las contribuciones debe ser igual al valor total", 
-                            parent=window)
+                    total_contrib = monto_alumno + monto_empresa + monto_sence
+                    if not math.isclose(total_contrib, valor_total, rel_tol=1e-9):
+                        messagebox.showerror("Error",
+                                             "La suma de contribuciones debe ser igual al valor total",
+                                             parent=window)
                         return
                 except ValueError:
                     messagebox.showerror("Error", "Valores de contribución inválidos", parent=window)
                     return
-
-            # Insertar el pago
-            id_pago = insert_payment(
-                id_inscripcion=id_inscripcion,
-                tipo_pago=tipo_pago_var.get(),
-                modalidad_pago=modalidad_pago_var.get(),
-                valor_total=valor_total,
-                num_cuotas=num_cuotas
-            )
-
-            if id_pago:
-                # Si es diferido, insertar contribuciones
-                if modalidad_pago_var.get() == "diferido":
-                    if monto_alumno > 0:
-                        insert_payment_contribution(id_pago, 'alumno', monto_alumno)
-                    if monto_empresa > 0:
-                        insert_payment_contribution(id_pago, 'empresa', monto_empresa)
-                    if monto_sence > 0:
-                        insert_payment_contribution(id_pago, 'sence', monto_sence)
-
-                messagebox.showinfo("Éxito", "Pago registrado correctamente", parent=window)
-                window.destroy()
-                self.show_payments()
             else:
-                messagebox.showerror("Error", "No se pudo registrar el pago", parent=window)
+                monto_alumno = 0
+                monto_empresa = 0
+                monto_sence = 0
 
-        # Botón de guardar
+            # Insertar pago
+            (id_pago, id_pagare) = insert_payment(
+                id_inscripcion=id_insc,
+                tipo_pago=tipo_pago_sel,
+                modalidad_pago=modalidad_sel,
+                valor_total=valor_total,
+                num_cuotas=n_cuotas
+            )
+            if not id_pago:
+                messagebox.showerror("Error", "No se pudo registrar el pago", parent=window)
+                return
+
+            created_id_pago[0] = id_pago
+            created_id_pagare[0] = id_pagare
+
+            # Si es diferido, insertamos contribuciones
+            if modalidad_sel == "diferido":
+                if monto_alumno > 0:
+                    insert_payment_contribution(id_pago, "alumno", monto_alumno)
+                if monto_empresa > 0:
+                    insert_payment_contribution(id_pago, "empresa", monto_empresa)
+                if monto_sence > 0:
+                    insert_payment_contribution(id_pago, "sence", monto_sence)
+
+            messagebox.showinfo("Éxito", "Pago registrado correctamente", parent=window)
+            self.show_payments()
+
+        def generar_contrato_pagare():
+            """
+            Genera el doc .docx (usando docxtpl) en la ubicación que el usuario
+            escoja con 'Guardar como...'.
+            """
+            if not created_id_pagare[0]:
+                messagebox.showerror("Error", "No hay ID de pagaré. Guarde primero con tipo 'pagare'.", parent=window)
+                return
+
+            # Construir el contexto
+            contexto = {
+                "id_pagare":      created_id_pagare[0],
+                "nombre_alumno":  fetched_data["nombre_alumno"] or "",
+                "id_alumno":      fetched_data["rut_alumno"] or "",
+                "direccion":      fetched_data["direccion_alumno"] or "",
+                "valor":          valor_entry.get() or "0",
+                "num_cuotas":     num_cuotas_var.get(),
+                "valorEscrito":   numero_a_letras(float(valor_entry.get())),
+                "valor_cuota":    f"{float(valor_entry.get()) / float(num_cuotas_var.get()):.2f}",
+                "cuotaEscrito":   numero_a_letras(float(valor_entry.get()) / float(num_cuotas_var.get())),
+                "mes_inicio":     mes_inicio_var.get(),
+                "year":           fetched_data["anio_inscripcion"] or "",
+                "fecha_inscripcion": str(fetched_data["fecha_inscripcion"]) 
+                                      if fetched_data["fecha_inscripcion"] else "",
+            }
+
+            template_path = "formatos/PAGARE.docx"
+            # Diálogo de "guardar como"
+            initial_filename = f"Pagare_{created_id_pagare[0]}.docx"
+            file_path = filedialog.asksaveasfilename(
+                parent=window,
+                title="Guardar Contrato Pagaré",
+                initialdir=os.path.expanduser("~"),
+                initialfile=initial_filename,
+                defaultextension=".docx",
+                filetypes=[("Documentos Word", "*.docx")]
+            )
+            if not file_path:
+                return  # Usuario canceló
+
+            generate_pagare_docx(template_path, file_path, contexto)
+            messagebox.showinfo("Éxito", f"Documento pagare generado:\n{file_path}", parent=window)
+
+        # Botón para guardar
         save_button = ttk.Button(
             main_frame,
-            text="Guardar",
+            text="Guardar Pago",
             command=validate_and_save,
             style="Accent.TButton"
         )
-        save_button.grid(row=4, column=0, columnspan=4, pady=20)
+        save_button.grid(row=4, column=0, columnspan=4, pady=10)
 
-        # Inicialmente ocultar el frame de contribuciones
-        contribuciones_frame.grid_remove()
+        # Botón para generar contrato (se mostrará solo cuando 'tipo_pago' sea 'pagare')
+        generate_button = ttk.Button(
+            main_frame,
+            text="Generar Contrato Pagaré",
+            command=generar_contrato_pagare
+        )
+        generate_button.grid_remove()  # Oculto por defecto
 
-        # Configurar el peso de las columnas
-        main_frame.grid_columnconfigure(0, weight=1)
-        main_frame.grid_columnconfigure(1, weight=1)
-        main_frame.grid_columnconfigure(2, weight=1)
-        main_frame.grid_columnconfigure(3, weight=1)
+        # Ajustar pesos de columnas
+        for i in range(4):
+            main_frame.grid_columnconfigure(i, weight=1)
 
     def show_payments_by_inscription(self):
         window = tk.Toplevel(self.root)
@@ -3745,8 +3880,7 @@ class App:
         window.title("Nueva Cotización")
         CotizacionWindow(window)
     # ---------------------------------------------------
-    #  Función genérica para varias "ventanas de añadir"
-    #  (En este ejemplo, la usamos para Pagos, Facturas, etc.)
+    #  Función genérica "ventanas de añadir"
     # ---------------------------------------------------
     def _generic_add_window(self, title, insert_function, fields):
         window = tk.Toplevel(self.root)
