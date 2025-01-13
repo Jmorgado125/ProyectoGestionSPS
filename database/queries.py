@@ -1179,43 +1179,102 @@ def fetch_inscription_details(id_inscripcion):
 # =======================================
 
 def fetch_payments():
-    """
-    Obtiene la lista de pagos con información detallada incluyendo inscripción y estado.
-    """
     conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                SELECT 
-                    p.id_pago,
-                    p.id_inscripcion,
-                    p.tipo_pago,
-                    p.modalidad_pago,
-                    p.fecha_inscripcion,
-                    p.fecha_final,
-                    p.num_cuotas,
-                    p.valor_total,
-                    p.estado,
-                    i.numero_acta,
-                    CONCAT(a.nombre, ' ', a.apellido) as nombre_alumno,
-                    c.nombre_curso
-                FROM pagos p
-                LEFT JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
-                LEFT JOIN alumnos a ON i.id_alumno = a.rut
-                LEFT JOIN cursos c ON i.id_curso = c.id_curso
-                ORDER BY p.fecha_inscripcion DESC
-            """
-            cursor.execute(query)
-            results = cursor.fetchall()
-            return results
-        except Exception as e:
-            print("Error al obtener pagos:", e)
-            return []
-        finally:
-            cursor.close()
-            conn.close()
-    return []
+    if not conn:
+        return []
+
+    try:
+        cursor = conn.cursor()
+        query = """
+            SELECT 
+                p.id_pago,
+                p.id_inscripcion,
+                p.tipo_pago,
+                p.modalidad_pago,
+                p.fecha_inscripcion,
+                p.fecha_final,
+                p.num_cuotas,
+                p.valor_total,
+                p.estado,
+                i.numero_acta,
+                CONCAT(a.nombre, ' ', a.apellido) AS nombre_alumno,
+                c.nombre_curso,
+                COALESCE(SUM(CASE WHEN cuo.estado_cuota = 'pagada' THEN 1 ELSE 0 END), 0) AS cuotas_pagadas
+            FROM pagos p
+            LEFT JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+            LEFT JOIN alumnos a ON i.id_alumno = a.rut
+            LEFT JOIN cursos c ON i.id_curso = c.id_curso
+            LEFT JOIN cuotas cuo ON p.id_pago = cuo.id_pago
+            GROUP BY p.id_pago
+            ORDER BY p.fecha_inscripcion DESC
+        """
+        cursor.execute(query)
+        results = cursor.fetchall()
+        return results
+    except Exception as e:
+        print("Error al obtener pagos:", e)
+        return []
+    finally:
+        cursor.close()
+        conn.close()
+
+def fetch_pending_payments():
+    conn = connect_db()
+    if not conn:
+        return [], {'total': 0, 'pagare_pendiente': 0}
+
+    try:
+        cursor = conn.cursor()
+        
+        # First, get the summary counts
+        summary_query = """
+            SELECT 
+                COUNT(*) as total_pendientes,
+                SUM(CASE WHEN tipo_pago = 'pagare' THEN 1 ELSE 0 END) as total_pagare_pendiente
+            FROM pagos 
+            WHERE estado = 'pendiente'
+        """
+        cursor.execute(summary_query)
+        summary_result = cursor.fetchone()
+        summary = {
+            'total': summary_result[0],
+            'pagare_pendiente': summary_result[1]
+        }
+
+        # Then, get the detailed payment information
+        detail_query = """
+            SELECT 
+                p.id_pago,
+                p.id_inscripcion,
+                p.tipo_pago,
+                p.modalidad_pago,
+                p.fecha_inscripcion,
+                p.fecha_final,
+                p.num_cuotas,
+                p.valor_total,
+                p.estado,
+                i.numero_acta,
+                CONCAT(a.nombre, ' ', a.apellido) AS nombre_alumno,
+                c.nombre_curso,
+                COALESCE(SUM(CASE WHEN cuo.estado_cuota = 'pagada' THEN 1 ELSE 0 END), 0) AS cuotas_pagadas
+            FROM pagos p
+            LEFT JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+            LEFT JOIN alumnos a ON i.id_alumno = a.rut
+            LEFT JOIN cursos c ON i.id_curso = c.id_curso
+            LEFT JOIN cuotas cuo ON p.id_pago = cuo.id_pago
+            WHERE p.estado = 'pendiente'
+            GROUP BY p.id_pago
+            ORDER BY p.fecha_inscripcion DESC
+        """
+        cursor.execute(detail_query)
+        results = cursor.fetchall()
+        return results, summary
+    except Exception as e:
+        print("Error al obtener pagos pendientes:", e)
+        return [], {'total': 0, 'pagare_pendiente': 0}
+    finally:
+        cursor.close()
+        conn.close()
 
 def fetch_alumno_curso_inscripcion(id_inscripcion):
     """
@@ -1451,7 +1510,6 @@ def register_quota_payment(id_cuota):
             cursor.close()
             conn.close()
     return False
-
 
 def get_payment_completion_info(id_pago):
     """

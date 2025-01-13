@@ -14,6 +14,7 @@ from tkcalendar import DateEntry
 from .cotizacion_window import CotizacionWindow
 from helpers.doc_generator import generate_pagare_docx
 from helpers.num_a_let import numero_a_letras
+from gui.tramitaciones.tramitacion import IntegratedTramitacionesFrame
 
 
 # ============================
@@ -81,7 +82,7 @@ from database.queries import (
 
     fetch_payments,insert_payment,fetch_payments_by_inscription,insert_payment_contribution,        #Pagos
     update_payment_status,fetch_alumno_curso_inscripcion,fetch_cuotas_by_pago,register_quota_payment,
-    update_cuota,search_pagare_payments,
+    update_cuota,search_pagare_payments,fetch_pending_payments,
 
     insert_invoice,fetch_invoices,                                                                  #Facturas
     
@@ -139,8 +140,8 @@ class App:
         self.root.deiconify()
 
         # 5. Mostramos directamente el LoginFrame (o la interfaz principal)
-        #self.show_login_frame()
-        self.setup_main_interface()
+        self.show_login_frame()
+        #self.setup_main_interface()
 
     def setup_styles(self):
         """
@@ -205,6 +206,11 @@ class App:
         style.configure('Secondary.TButton',
                         font=('Segoe UI', 10),
                         padding=5)
+        # Agregar estilo específico para tramitaciones
+        style.configure("Tramitaciones.TFrame", 
+                    background="#FFFFFF",
+                    relief="flat",
+                    borderwidth=0)
 
     def show_login_frame(self):
         """
@@ -345,6 +351,7 @@ class App:
         pagos_menu.add_command(label="Pagos por Inscripción", command=self.show_payments_by_inscription)
         pagos_menu.add_command(label="Actualizar Estado", command=self.update_payment_status_window)
         pagos_menu.add_command(label="Actualizar Cuotas", command=self.manage_cuotas_pagare_window)
+        pagos_menu.add_command(label="Pagos Pendientes", command=self.show_pending_payments)
         menubar.add_cascade(label="Pagos", menu=pagos_menu)
 
         # Menú Facturación
@@ -355,8 +362,9 @@ class App:
 
         # Menú Tramitaciones
         tramitaciones_menu = tk.Menu(menubar, tearoff=0)
+        tramitaciones_menu.add_command(label="Ver Tramitaciones", command=self.show_tramitaciones)
         # Podrías añadir ítems aquí si lo requieres
-        # menubar.add_cascade(label="Tramitaciones", menu=tramitaciones_menu)
+        menubar.add_cascade(label="Tramitaciones", menu=tramitaciones_menu)
 
         # Menú Cotizaciones
         cotizaciones_menu = tk.Menu(menubar, tearoff=0)
@@ -370,6 +378,16 @@ class App:
         empresas_menu.add_command(label="Añadir y Editar Empresa", command=self.manage_empresa_window)
         empresas_menu.add_command(label="Gestionar Contactos", command=self.manage_contacts_window)
         menubar.add_cascade(label="Empresas", menu=empresas_menu)
+
+    def _clear_main_content(self):
+        """Limpia solo el contenido principal preservando el header"""
+        try:
+            # Preservar el header_frame y eliminar solo el contenido debajo
+            for widget in self.main_frame.winfo_children():
+                if widget != self.header_frame:
+                    widget.destroy()
+        except Exception as e:
+            print(f"Error al limpiar contenido principal: {e}")
         
     def _setup_tree(self):
         """
@@ -430,7 +448,7 @@ class App:
             return "break"
         except:
             pass
-
+       
     def _copy_selected_cell(self):
         """Copia el contenido de la celda seleccionada"""
         try:
@@ -508,13 +526,31 @@ class App:
     # =================================================================
     def show_inscriptions(self):
         try:
-            if not hasattr(self, 'tree'):
-                print("Error: tree no está inicializado")
-                return
-                    
+            # Limpiar solo el contenido principal
+            self._clear_main_content()
+            
             # Actualizar el título
             self._update_title_label("Listado de Inscripciones")
-                    
+            
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Crear frame para el treeview
+            tree_frame = ttk.Frame(content_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Crear y configurar scrollbar
+            scrollbar = ttk.Scrollbar(tree_frame)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # Crear el treeview
+            self.tree = ttk.Treeview(tree_frame, yscrollcommand=scrollbar.set)
+            self.tree.pack(fill=tk.BOTH, expand=True)
+            
+            # Configurar scrollbar
+            scrollbar.config(command=self.tree.yview)
+            
             # Definir las columnas y headers
             columns = (
                 "ID", "N_Acta", "RUT", "Nombre_Completo",
@@ -551,25 +587,24 @@ class App:
                             formatted.get("Estado_Pago", "SIN PROCESAR")
                         ]
                         formatted_data.append(row)
-                
-            # Limpiar y configurar el tree
-            self.tree.delete(*self.tree.get_children())
+            
+            # Configurar el tree
             self.tree.config(columns=columns, show="headings")
                 
-            # Configurar encabezados y columnas con anchos optimizados
+            # Configurar columnas
             column_widths = {
-                "ID": 50,                  # IDs suelen ser cortos
-                "N_Acta": 60,             # Números de acta suelen ser cortos
-                "RUT": 90,                # RUT chileno tiene largo fijo
-                "Nombre_Completo": 200,    # Nombres necesitan espacio razonable
-                "ID_Curso": 90,           # Códigos de curso suelen ser cortos
-                "F_Inscripcion": 90,      # Fechas tienen largo fijo
-                "F_Termino": 90,          # Fechas tienen largo fijo
-                "Año": 50,                # Año es muy corto
-                "Empresa": 150,           # Nombres de empresa pueden variar
-                "Codigo_Sence": 100,      # Códigos SENCE son números
-                "Folio": 60,              # Folios suelen ser cortos
-                "Estado_Pago": 90         # Estados son palabras cortas
+                "ID": 50,
+                "N_Acta": 60,
+                "RUT": 90,
+                "Nombre_Completo": 200,
+                "ID_Curso": 90,
+                "F_Inscripcion": 90,
+                "F_Termino": 90,
+                "Año": 50,
+                "Empresa": 150,
+                "Codigo_Sence": 100,
+                "Folio": 60,
+                "Estado_Pago": 90
             }
 
             # Aplicar configuración de columnas
@@ -582,13 +617,13 @@ class App:
             for item in formatted_data:
                 estado = item[-1]  # El estado es la última columna
                 tag = self._get_estado_tag(estado)
-                item_id = self.tree.insert("", "end", values=item, tags=(tag,))
+                self.tree.insert("", "end", values=item, tags=(tag,))
                 
             # Configurar colores para los diferentes estados
-            self.tree.tag_configure('pendiente', background='#FFF3CD')    # Amarillo claro
-            self.tree.tag_configure('pagado', background='#D4EDDA')       # Verde claro
-            self.tree.tag_configure('cancelado', background='#F8D7DA')    # Rojo claro
-            self.tree.tag_configure('sin_procesar', background='#E2E3E5') # Gris claro
+            self.tree.tag_configure('pendiente', background='#FFF3CD')
+            self.tree.tag_configure('pagado', background='#D4EDDA')
+            self.tree.tag_configure('cancelado', background='#F8D7DA')
+            self.tree.tag_configure('sin_procesar', background='#E2E3E5')
                     
         except Exception as e:
             print(f"Error al mostrar inscripciones: {e}")
@@ -1325,65 +1360,112 @@ class App:
     # ---------------------------------------------------
 
     def show_courses(self):
-        courses = fetch_courses()
+        try:
+            # Limpiar solo el contenido principal
+            self._clear_main_content()
+            
+            # Actualizar el título
+            self._update_title_label("Listado de Cursos")
+            
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Crear frame para el treeview y scrollbars
+            tree_frame = ttk.Frame(content_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Crear y configurar scrollbar vertical
+            v_scrollbar = ttk.Scrollbar(tree_frame)
+            v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # Crear y configurar scrollbar horizontal
+            h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
+            h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+            
+            # Crear el treeview
+            self.tree = ttk.Treeview(tree_frame, 
+                                    yscrollcommand=v_scrollbar.set,
+                                    xscrollcommand=h_scrollbar.set)
+            self.tree.pack(fill=tk.BOTH, expand=True)
+            
+            # Configurar scrollbars
+            v_scrollbar.config(command=self.tree.yview)
+            h_scrollbar.config(command=self.tree.xview)
+            
+            # Definir columnas y headers
+            columns = (
+                "id_curso",
+                "nombre_curso",
+                "modalidad",
+                "codigo_sence",
+                "codigo_elearning",
+                "horas_cronologicas",
+                "horas_pedagogicas",
+                "valor",
+                "duracionDias",
+                "tipo_curso",
+                "resolucion",
+                "fecha_resolucion",
+                "fecha_vigencia",
+                "valor_alumno_sence"
+            )
+            
+            headers = (
+                "ID",
+                "Nombre",
+                "Modalidad",
+                "Código SENCE",
+                "Código eLearning",
+                "Hrs. Cron.",
+                "Hrs. Pedag.",
+                "Valor",
+                "Duración (días)",
+                "Tipo de Curso",
+                "Resolución",
+                "Fecha Resolución",
+                "Fecha Vigencia",
+                "Valor Alumno SENCE"
+            )
 
-        columns = (
-            "id_curso",
-            "nombre_curso",
-            "modalidad",
-            "codigo_sence",
-            "codigo_elearning",
-            "horas_cronologicas",
-            "horas_pedagogicas",
-            "valor",
-            "duracionDias",
-            "tipo_curso",
-            "resolucion",
-            "fecha_resolucion",
-            "fecha_vigencia",
-            "valor_alumno_sence"
-        )
-        headers = (
-            "ID",
-            "Nombre",
-            "Modalidad",
-            "Código SENCE",
-            "Código eLearning",
-            "Hrs. Cron.",
-            "Hrs. Pedag.",
-            "Valor",
-            "Duración (días)",
-            "Tipo de Curso",
-            "Resolución",
-            "Fecha Resolución",
-            "Fecha Vigencia",
-            "Valor Alumno SENCE"
-        )
+            # Obtener datos
+            courses = fetch_courses()
+            
+            # Configurar el tree
+            self.tree.config(columns=columns, show="headings")
+            
+            # Configurar columnas con sus anchos
+            column_widths = {
+                "id_curso": (80, False),
+                "nombre_curso": (250, True),
+                "modalidad": (100, False),
+                "codigo_sence": (120, False),
+                "codigo_elearning": (120, False),
+                "horas_cronologicas": (100, False),
+                "horas_pedagogicas": (100, False),
+                "valor": (120, False),
+                "duracionDias": (120, False),
+                "tipo_curso": (150, False),
+                "resolucion": (150, False),
+                "fecha_resolucion": (120, False),
+                "fecha_vigencia": (120, False),
+                "valor_alumno_sence": (150, False)
+            }
 
-        self._update_title_label("Listado de Cursos")
-        self._populate_tree(columns, headers, courses)
+            # Aplicar configuración de columnas
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                width, stretch = column_widths.get(column, (100, False))
+                self.tree.column(column, width=width, stretch=stretch, anchor=tk.CENTER)
+                
+            # Insertar datos
+            for course in courses:
+                self.tree.insert("", "end", values=course)
 
-        # Ajustar anchos de columna dinámicamente
-        if hasattr(self, 'tree'):
-            self.tree.column("id_curso", width=80, stretch=False)
-            self.tree.column("nombre_curso", width=250, stretch=True)
-            self.tree.column("modalidad", width=100, stretch=False)
-            self.tree.column("codigo_sence", width=120, stretch=False)
-            self.tree.column("codigo_elearning", width=120, stretch=False)
-            self.tree.column("horas_cronologicas", width=100, stretch=False)
-            self.tree.column("horas_pedagogicas", width=100, stretch=False)
-            self.tree.column("valor", width=120, stretch=False)
-            self.tree.column("duracionDias", width=120, stretch=False)
-            self.tree.column("tipo_curso", width=150, stretch=False)
-            self.tree.column("resolucion", width=150, stretch=False)
-            self.tree.column("fecha_resolucion", width=120, stretch=False)
-            self.tree.column("fecha_vigencia", width=120, stretch=False)
-            self.tree.column("valor_alumno_sence", width=150, stretch=False)
-
-        # Configurar scroll horizontal si es necesario
-        if hasattr(self, 'tree_scroll_horizontal'):
-            self.tree_scroll_horizontal.pack(side=tk.BOTTOM, fill=tk.X)
-            self.tree.configure(xscrollcommand=self.tree_scroll_horizontal.set)
+        except Exception as e:
+            print(f"Error al mostrar cursos: {e}")
+            import traceback
+            traceback.print_exc()
     
     #@requiere_rol_gui("admin")
     def add_course_window(self):
@@ -2018,15 +2100,99 @@ class App:
     # ---------------------------------------------------
     #                  ALUMNOS
     # ---------------------------------------------------
+
     def show_students(self):
-        students = fetch_all_students()
-        # Ajustar columnas si cambiaste la BD y eliminaste algunas
-        columns = ("rut", "nombre", "apellido", "correo", "telefono",
-                   "profesion", "direccion", "ciudad", "comuna")
-        headers = ("RUT", "Nombre", "Apellido", "Correo", "Teléfono",
-                   "Profesión", "Dirección", "Ciudad", "Comuna")
-        self._update_title_label("Listado de Alumnos")
-        self._populate_tree(columns, headers, students)
+        try:
+            # Limpiar solo el contenido principal
+            self._clear_main_content()
+            
+            # Actualizar el título
+            self._update_title_label("Listado de Alumnos")
+            
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Crear frame para el treeview y scrollbars
+            tree_frame = ttk.Frame(content_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Crear y configurar scrollbar vertical
+            v_scrollbar = ttk.Scrollbar(tree_frame)
+            v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # Crear y configurar scrollbar horizontal
+            h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
+            h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+            
+            # Crear el treeview
+            self.tree = ttk.Treeview(tree_frame, 
+                                    yscrollcommand=v_scrollbar.set,
+                                    xscrollcommand=h_scrollbar.set)
+            self.tree.pack(fill=tk.BOTH, expand=True)
+            
+            # Configurar scrollbars
+            v_scrollbar.config(command=self.tree.yview)
+            h_scrollbar.config(command=self.tree.xview)
+            
+            # Definir columnas y headers
+            columns = (
+                "rut", 
+                "nombre", 
+                "apellido", 
+                "correo", 
+                "telefono",
+                "profesion", 
+                "direccion", 
+                "ciudad", 
+                "comuna"
+            )
+            
+            headers = (
+                "RUT", 
+                "Nombre", 
+                "Apellido", 
+                "Correo", 
+                "Teléfono",
+                "Profesión", 
+                "Dirección", 
+                "Ciudad", 
+                "Comuna"
+            )
+
+            # Obtener datos
+            students = fetch_all_students()
+            
+            # Configurar el tree
+            self.tree.config(columns=columns, show="headings")
+            
+            # Configurar columnas con sus anchos optimizados
+            column_widths = {
+                "rut": (100, False),
+                "nombre": (150, True),
+                "apellido": (150, True),
+                "correo": (200, True),
+                "telefono": (100, False),
+                "profesion": (150, True),
+                "direccion": (200, True),
+                "ciudad": (120, False),
+                "comuna": (120, False)
+            }
+
+            # Aplicar configuración de columnas
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                width, stretch = column_widths.get(column, (100, False))
+                self.tree.column(column, width=width, stretch=stretch, anchor=tk.CENTER)
+                
+            # Insertar datos
+            for student in students:
+                self.tree.insert("", "end", values=student)
+
+        except Exception as e:
+            print(f"Error al mostrar alumnos: {e}")
+            import traceback
+            traceback.print_exc()
 
     def add_student_window(self):
             window = tk.Toplevel(self.root)
@@ -2721,13 +2887,31 @@ class App:
     # ---------------------------------------------------
     def show_payments(self):
         try:
-            if not hasattr(self, 'tree'):
-                print("Error: tree no está inicializado")
-                return
-                    
+            # Limpiar solo el contenido principal
+            self._clear_main_content()
+            
             # Actualizar el título
             self._update_title_label("Listado de Pagos")
-                    
+            
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Crear frame para el treeview
+            tree_frame = ttk.Frame(content_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Crear y configurar scrollbar
+            scrollbar = ttk.Scrollbar(tree_frame)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # Crear el treeview
+            self.tree = ttk.Treeview(tree_frame, yscrollcommand=scrollbar.set)
+            self.tree.pack(fill=tk.BOTH, expand=True)
+            
+            # Configurar scrollbar
+            scrollbar.config(command=self.tree.yview)
+                        
             # Definir las columnas y headers
             columns = (
                 "ID", "Inscripcion", "Alumno", "Curso", "N_Acta",
@@ -2747,32 +2931,30 @@ class App:
                 
             if data_raw:
                 for payment in data_raw:
-                    # Formatear fechas y valores monetarios
                     fecha_inscripcion = payment[4].strftime('%Y-%m-%d') if payment[4] else ''
                     fecha_final = payment[5].strftime('%Y-%m-%d') if payment[5] else ''
                     valor_total = f"${payment[7]:,.0f}" if payment[7] else ''
 
                     row = [
                         payment[0],                    # ID
-                        payment[1],                    # ID Inscripción
-                        payment[10],                   # Nombre Alumno
-                        payment[11],                   # Nombre Curso
+                        payment[1],                    # Inscripción
+                        payment[10],                   # Alumno
+                        payment[11],                   # Curso
                         payment[9],                    # N° Acta
-                        payment[2].capitalize(),       # Tipo Pago
-                        payment[3].capitalize(),       # Modalidad Pago
-                        f"{payment[6]}/{payment[6]}",  # Cuotas (total/total)
-                        valor_total,                   # Valor Total
+                        payment[2].capitalize(),       # Tipo
+                        payment[3].capitalize(),       # Modalidad
+                        f"{payment[12]}/{payment[6]}", # Cuotas pagadas / total
+                        valor_total,                   # Valor
                         payment[8].upper(),            # Estado
-                        fecha_inscripcion,            # Fecha Inscripción
-                        fecha_final                    # Fecha Final
+                        fecha_inscripcion,
+                        fecha_final
                     ]
                     formatted_data.append(row)
                 
-            # Limpiar y configurar el tree
-            self.tree.delete(*self.tree.get_children())
+            # Configurar el tree
             self.tree.config(columns=columns, show="headings")
                 
-            # Configurar encabezados y columnas con anchos optimizados
+            # Configurar columnas con anchos optimizados
             column_widths = {
                 "ID": 60,
                 "Inscripcion": 80,
@@ -2818,6 +3000,115 @@ class App:
         if estado in ['PENDIENTE', 'PAGADO', 'CANCELADO']:
             return estado
         return 'PENDIENTE'  # Estado por defecto
+
+    def show_pending_payments(self):
+        try:
+            # Actualizar el título sin recrear el label
+            self._update_title_label("Pagos Pendientes")
+            
+            # Limpiar solo el contenido del tree existente
+            if hasattr(self, 'tree'):
+                self.tree.delete(*self.tree.get_children())
+            
+            # Obtener datos y resumen
+            data_raw, summary = fetch_pending_payments()
+            
+            # Frame de resumen con el estilo consistente
+            summary_frame = ttk.Frame(self.main_frame)
+            summary_frame.pack(fill=tk.X, padx=10, pady=5)
+            
+            # Box de resumen con estilo consistente
+            summary_box = ttk.LabelFrame(summary_frame, text="Resumen de Pagos Pendientes")
+            summary_box.pack(fill=tk.X, padx=5, pady=5)
+            
+            # Labels de resumen con estilo consistente de la aplicación
+            total_label = ttk.Label(
+                summary_box, 
+                text=f"Total Pagos Pendientes: {summary['total']}",
+                style="TLabel"
+            )
+            total_label.pack(side=tk.LEFT, padx=20)
+            
+            pagare_label = ttk.Label(
+                summary_box,
+                text=f"Pagarés Pendientes: {summary['pagare_pendiente']}",
+                style="TLabel"
+            )
+            pagare_label.pack(side=tk.LEFT, padx=20)
+            
+            # Definir columnas y headers
+            columns = (
+                "ID", "Inscripcion", "Alumno", "Curso", "N_Acta",
+                "Tipo_Pago", "Modalidad_Pago", "Cuotas", "Valor_Total",
+                "Estado", "F_Inscripcion", "F_Final"
+            )
+                
+            headers = (
+                "ID", "Inscripción", "Alumno", "Curso", "N° Acta",
+                "Tipo", "Modalidad", "Cuotas", "Valor Total",
+                "Estado", "F. Inscripción", "F. Final"
+            )
+
+            # Formatear datos
+            formatted_data = []
+            if data_raw:
+                for payment in data_raw:
+                    fecha_inscripcion = payment[4].strftime('%Y-%m-%d') if payment[4] else ''
+                    fecha_final = payment[5].strftime('%Y-%m-%d') if payment[5] else ''
+                    valor_total = f"${payment[7]:,.0f}" if payment[7] else ''
+
+                    row = [
+                        payment[0],                    # ID
+                        payment[1],                    # Inscripción
+                        payment[10],                   # Alumno
+                        payment[11],                   # Curso
+                        payment[9],                    # N° Acta
+                        payment[2].capitalize(),       # Tipo
+                        payment[3].capitalize(),       # Modalidad
+                        f"{payment[12]}/{payment[6]}", # Cuotas pagadas / total
+                        valor_total,                   # Valor
+                        payment[8].upper(),            # Estado
+                        fecha_inscripcion,
+                        fecha_final
+                    ]
+                    formatted_data.append(row)
+
+            # Configurar columnas del tree
+            self.tree.config(columns=columns, show="headings")
+            
+            # Configurar columnas con anchos consistentes
+            column_widths = {
+                "ID": 60,
+                "Inscripcion": 80,
+                "Alumno": 200,
+                "Curso": 200,
+                "N_Acta": 80,
+                "Tipo_Pago": 80,
+                "Modalidad_Pago": 90,
+                "Cuotas": 70,
+                "Valor_Total": 100,
+                "Estado": 90,
+                "F_Inscripcion": 100,
+                "F_Final": 100
+            }
+
+            # Aplicar configuración de columnas
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                width = column_widths.get(column, 100)
+                self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
+                
+            # Insertar datos
+            for item in formatted_data:
+                self.tree.insert("", "end", values=item, tags=('PENDIENTE',))
+                
+            # Configurar color para pendientes manteniendo consistencia
+            self.tree.tag_configure('PENDIENTE', background='#FFF3CD')  # Amarillo claro
+
+        except Exception as e:
+            print(f"Error al mostrar pagos pendientes: {e}")
+            import traceback
+            traceback.print_exc()
 
     def add_payment_window(self):
         window = tk.Toplevel(self.root)
@@ -3742,6 +4033,7 @@ class App:
 
             if error_count == 0:
                 messagebox.showinfo("Éxito", "Las cuotas seleccionadas fueron pagadas.", parent=window)
+                self.show_payments()
             else:
                 messagebox.showerror("Error", f"Ocurrió un problema pagando {error_count} cuota(s).", parent=window)
 
@@ -3778,6 +4070,7 @@ class App:
             if success:
                 messagebox.showinfo("Éxito", "Cuota actualizada correctamente.", parent=window)
                 load_cuotas_for_payment()
+                self.show_payments()
             else:
                 messagebox.showerror("Error", "No se pudo actualizar la cuota.", parent=window)
 
@@ -3997,65 +4290,91 @@ class App:
         toggle_mode("nuevo")
 
     def show_empresas(self):
-        """Muestra la lista de empresas en el treeview"""
         try:
-            # Verificar que el treeview existe
-            if not hasattr(self, 'tree'):
-                print("Error: tree no está inicializado")
-                return
-                
+            # Limpiar solo el contenido principal
+            self._clear_main_content()
+            
             # Actualizar el título
             self._update_title_label("Listado de Empresas")
-                
-            # Definir las columnas
+            
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Crear frame para el treeview y scrollbars
+            tree_frame = ttk.Frame(content_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Crear y configurar scrollbar vertical
+            v_scrollbar = ttk.Scrollbar(tree_frame)
+            v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # Crear y configurar scrollbar horizontal
+            h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
+            h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+            
+            # Crear el treeview
+            self.tree = ttk.Treeview(tree_frame, 
+                                    yscrollcommand=v_scrollbar.set,
+                                    xscrollcommand=h_scrollbar.set)
+            self.tree.pack(fill=tk.BOTH, expand=True)
+            
+            # Configurar scrollbars
+            v_scrollbar.config(command=self.tree.yview)
+            h_scrollbar.config(command=self.tree.xview)
+            
+            # Definir columnas y headers
             columns = (
-                "id_empresa", "rut_empresa", "direccion_empresa", 
-                "nombre_contacto", "correo_contacto", "telefono_contacto", 
+                "id_empresa", 
+                "rut_empresa", 
+                "direccion_empresa", 
+                "nombre_contacto", 
+                "correo_contacto", 
+                "telefono_contacto", 
                 "rol_contacto"
             )
-                
+            
             headers = (
-                "Nombre Empresa", "RUT", "Dirección", 
-                "Contacto", "Email", "Teléfono", 
+                "Nombre Empresa", 
+                "RUT", 
+                "Dirección", 
+                "Contacto", 
+                "Email", 
+                "Teléfono", 
                 "Rol"
             )
 
             # Obtener datos
             empresas = fetch_all_empresas()
             
-            # Configurar el treeview
-            self.tree.delete(*self.tree.get_children())
-            
-            # Configurar las columnas
+            # Configurar el tree
             self.tree.config(columns=columns, show="headings")
             
-            # Configurar los encabezados y anchos de columna
+            # Configurar columnas con sus anchos optimizados
             column_widths = {
-                "id_empresa": 150,
-                "rut_empresa": 100,
-                "direccion_empresa": 200,
-                "nombre_contacto": 150,
-                "correo_contacto": 200,
-                "telefono_contacto": 120,
-                "rol_contacto": 120
+                "id_empresa": (150, True),
+                "rut_empresa": (100, False),
+                "direccion_empresa": (200, True),
+                "nombre_contacto": (150, True),
+                "correo_contacto": (200, True),
+                "telefono_contacto": (120, False),
+                "rol_contacto": (120, False)
             }
-            
-            for col, header in zip(columns, headers):
-                self.tree.heading(col, text=header, anchor=tk.CENTER)
-                self.tree.column(col, 
-                            width=column_widths.get(col, 120),
-                            minwidth=50,
-                            anchor=tk.CENTER)
-            
-            # Insertar los datos
-            for empresa in empresas:
-                formatted_row = format_empresa_data(empresa)
-                self.tree.insert("", tk.END, values=formatted_row)
+
+            # Aplicar configuración de columnas
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                width, stretch = column_widths.get(column, (100, False))
+                self.tree.column(column, width=width, stretch=stretch, anchor=tk.CENTER)
                 
-            # Opcional: Mostrar mensaje si no hay datos
-            if not empresas:
+            # Insertar datos
+            if empresas:
+                for empresa in empresas:
+                    formatted_row = format_empresa_data(empresa)
+                    self.tree.insert("", tk.END, values=formatted_row)
+            else:
                 print("No se encontraron empresas registradas")
-                    
+
         except Exception as e:
             print(f"Error al mostrar empresas: {e}")
             import traceback
@@ -4306,44 +4625,94 @@ class App:
         """
         Muestra la lista de cotizaciones en el treeview
         """
-        cotizaciones = fetch_cotizaciones()
-        
-        # Definir columnas y encabezados
-        columns = (
-            "id_cotizacion",
-            "nombre_contacto",
-            "origen",
-            "fecha_cotizacion",
-            "fecha_vencimiento",
-            "email",
-            "modo_pago",
-            "cantidad_total_cursos"
-        )
-        
-        headers = (
-            "ID",
-            "Nombre Contacto",
-            "Origen",
-            "Fecha Cotización",
-            "Fecha Vencimiento",
-            "Email",
-            "Modo de Pago",
-            "Cantidad Cursos"
-        )
+        try:
+            # Limpiar solo el contenido principal
+            self._clear_main_content()
+            
+            # Actualizar el título
+            self._update_title_label("Listado de Cotizaciones")
+            
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Crear frame para el treeview y scrollbars
+            tree_frame = ttk.Frame(content_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Crear y configurar scrollbar vertical
+            v_scrollbar = ttk.Scrollbar(tree_frame)
+            v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # Crear y configurar scrollbar horizontal
+            h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
+            h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+            
+            # Crear el treeview
+            self.tree = ttk.Treeview(tree_frame, 
+                                    yscrollcommand=v_scrollbar.set,
+                                    xscrollcommand=h_scrollbar.set)
+            self.tree.pack(fill=tk.BOTH, expand=True)
+            
+            # Configurar scrollbars
+            v_scrollbar.config(command=self.tree.yview)
+            h_scrollbar.config(command=self.tree.xview)
+            
+            # Definir columnas y headers
+            columns = (
+                "id_cotizacion",
+                "nombre_contacto",
+                "origen",
+                "fecha_cotizacion",
+                "fecha_vencimiento",
+                "email",
+                "modo_pago",
+                "cantidad_total_cursos"
+            )
+            
+            headers = (
+                "ID",
+                "Nombre Contacto",
+                "Origen",
+                "Fecha Cotización",
+                "Fecha Vencimiento",
+                "Email",
+                "Modo de Pago",
+                "Cantidad Cursos"
+            )
 
-        self._update_title_label("Listado de Cotizaciones")
-        self._populate_tree(columns, headers, cotizaciones)
+            # Obtener datos
+            cotizaciones = fetch_cotizaciones()
+            
+            # Configurar el tree
+            self.tree.config(columns=columns, show="headings")
+            
+            # Configurar columnas con sus anchos optimizados
+            column_widths = {
+                "id_cotizacion": (80, False),
+                "nombre_contacto": (150, True),
+                "origen": (150, True),
+                "fecha_cotizacion": (120, False),
+                "fecha_vencimiento": (120, False),
+                "email": (200, True),
+                "modo_pago": (100, False),
+                "cantidad_total_cursos": (100, False)
+            }
 
-        # Ajustar el ancho de las columnas específicas
-        if hasattr(self, 'tree'):
-            self.tree.column("id_cotizacion", width=80)
-            self.tree.column("nombre_contacto", width=150)
-            self.tree.column("origen", width=150)
-            self.tree.column("fecha_cotizacion", width=120)
-            self.tree.column("fecha_vencimiento", width=120)
-            self.tree.column("email", width=200)
-            self.tree.column("modo_pago", width=100)
-            self.tree.column("cantidad_total_cursos", width=100)
+            # Aplicar configuración de columnas
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                width, stretch = column_widths.get(column, (100, False))
+                self.tree.column(column, width=width, stretch=stretch, anchor=tk.CENTER)
+                
+            # Insertar datos
+            for cotizacion in cotizaciones:
+                self.tree.insert("", "end", values=cotizacion)
+
+        except Exception as e:
+            print(f"Error al mostrar cotizaciones: {e}")
+            import traceback
+            traceback.print_exc()
   
     def show_cotizacion_window(self):
         window = tk.Toplevel(self.root)
@@ -4414,6 +4783,34 @@ class App:
             window.destroy()
 
         tk.Button(window, text="Guardar", bg="#ADD8E6", command=save).pack(pady=20)
+
+    #================================================================
+    #                   TRAMITACIONES 
+    #================================================================
+
+
+    def show_tramitaciones(self):
+        """Muestra la ventana de tramitaciones integrada en el frame principal"""
+        try:
+            # Limpiar solo el contenido principal
+            self._clear_main_content()
+            
+            # Actualizar el título
+            self._update_title_label("  ")
+
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Crear la instancia de TramitacionesFrame
+            self.tramitaciones = IntegratedTramitacionesFrame(content_frame)
+            self.tramitaciones.pack(fill=tk.BOTH, expand=True)
+
+        except Exception as e:
+            print(f"Error al mostrar tramitaciones: {e}")
+            import traceback
+            traceback.print_exc()
+
 
 
 # ------------------------ MAIN ------------------------
