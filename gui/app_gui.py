@@ -77,26 +77,28 @@ from database.queries import (
     validate_curso_exists,add_business_days,
 
 
-    fetch_courses_by_student_rut,fetch_all_students,insert_student,fetch_student_by_rut,            #Alumnos
-    delete_student_by_rut,fetch_students_by_name_apellido,validate_alumno_exists,
+    fetch_all_students,insert_student,fetch_student_by_rut,            #Alumnos
+    delete_student_by_rut,fetch_students_by_name_apellido,validate_alumno_exists,fetch_active_students,
 
     fetch_payments,insert_payment,fetch_payments_by_inscription,insert_payment_contribution,        #Pagos
     update_payment_status,fetch_alumno_curso_inscripcion,fetch_cuotas_by_pago,register_quota_payment,
     update_cuota,search_pagare_payments,fetch_pending_payments,
 
-    insert_invoice,fetch_invoices,                                                                  #Facturas
+    insert_invoice,fetch_invoices,update_invoice_status,                                                                  #Facturas
     
     fetch_user_by_credentials,enroll_student,fetch_inscriptions,                                    #Inscripciones
     update_inscription,update_student,validate_duplicate_enrollment,
     format_inscription_data,delete_inscription,fetch_inscription_by_id,
-     add_business_days,
+     add_business_days,fetch_inscriptions_filtered,
 
     get_or_create_empresa,fetch_all_empresas,                                                       #Empresas
     fetch_contactos_by_empresa,fetch_all_empresas_for_combo
     ,delete_contacto_empresa,format_empresa_data,
     fetch_empresa_by_id,save_empresa,save_contacto_empresa,
 
-    fetch_cotizaciones          
+    fetch_cotizaciones,
+
+    fetch_tramitaciones_by_rut,fetch_tramitaciones_activas,fetch_tramitaciones,fetch_tipos_tramite,  #Tramitaciones     
 )
 
 
@@ -125,8 +127,6 @@ class App:
         try:
             # Usar solo iconbitmap con tu .ico
             self.root.iconbitmap('assets/logo2.ico')
-            # Si tu .ico es suficiente, comenta la siguiente línea:
-            # self.root.call('wm', 'iconphoto', self.root._w, tk.PhotoImage(file='assets/logo2.ico'))
         except Exception as e:
             print(f"Error al cargar íconos: {e}")
 
@@ -181,12 +181,11 @@ class App:
                   background=[('selected', '#0078D7')],
                   foreground=[('selected', 'white')])
 
-        style.configure("TButton",
-                        padding=6,
-                        relief="flat",
-                        background="#0078D7",
-                        foreground="black",
-                        font=('Segoe UI', 10))
+        style.configure('TButton',
+                        font=('Segoe UI', 10),
+                        padding=5,
+                        background='#00239c',
+                        foreground='white')
 
         style.configure("TLabel",
                         font=('Segoe UI', 10),
@@ -198,10 +197,34 @@ class App:
                         foreground="white")
 
         style.configure('Action.TButton',
-                        font=('Segoe UI', 10),
-                        padding=5,
-                        background='#00239c',
-                        foreground='white')
+                       font=('Helvetica', 10, 'bold'),
+                       padding=(10, 5),
+                       background='#00239c',
+                       foreground='white',
+                       relief='raised',  # Cambiado a raised para dar el efecto 3D
+                       borderwidth=1)    # Añadido borde
+        
+        style.map('Action.TButton',
+                 background=[('active', '#001970'),
+                           ('pressed', '#00239c')],
+                 foreground=[('active', 'white'),
+                           ('pressed', 'white')],
+                 relief=[('pressed', 'sunken')])  # Efecto presionado
+        
+        style.configure('delete.TButton',
+                       font=('Helvetica', 10, 'bold'),
+                       padding=(10, 5),
+                       background='#b50707',
+                       foreground='white',
+                       relief='raised',  # Cambiado a raised para dar el efecto 3D
+                       borderwidth=1)    # Añadido borde
+        
+        style.map('delete.TButton',
+                 background=[('active', '#990606'),
+                           ('pressed', '#b50707')],
+                 foreground=[('active', 'white'),
+                           ('pressed', 'white')],
+                 relief=[('pressed', 'sunken')])  # Efecto presionado
 
         style.configure('Secondary.TButton',
                         font=('Segoe UI', 10),
@@ -317,68 +340,19 @@ class App:
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
 
-        # Menú Cursos
-        cursos_menu = tk.Menu(menubar, tearoff=0)
-        cursos_menu.add_command(label="Ver Cursos", command=self.show_courses)
-        cursos_menu.add_command(label="Añadir Curso", command=self.add_course_window)
-        cursos_menu.add_command(label="Editar Curso", command=self.edit_course_window)
-        cursos_menu.add_command(label="Eliminar Curso", command=self.delete_course_window)
-        menubar.add_cascade(label="Cursos", menu=cursos_menu)
-
-        # Menú Alumnos
-        alumnos_menu = tk.Menu(menubar, tearoff=0)
-        alumnos_menu.add_command(label="Ver Alumnos", command=self.show_students)
-        alumnos_menu.add_command(label="Añadir Alumno", command=self.add_student_window)
-        alumnos_menu.add_command(label="Editar Alumno", command=self.edit_student_window)
-        alumnos_menu.add_command(label="Buscar Alumno", command=self.search_student_window)
-        alumnos_menu.add_command(label="Eliminar Alumno", command=self.delete_student_window)
-        menubar.add_cascade(label="Alumnos", menu=alumnos_menu)
-
-        # Menú Inscripciones
-        inscripciones_menu = tk.Menu(menubar, tearoff=0)
-        inscripciones_menu.add_command(label="Ver Inscripciones", command=self.show_inscriptions)
-        inscripciones_menu.add_command(label="Matricular Alumno", command=self.enroll_student_window)
-        inscripciones_menu.add_command(label="Editar Inscripción", command=self.update_inscription_window) 
-        inscripciones_menu.add_command(label="Eliminar Inscripción", command=self.delete_inscription_window)
-        inscripciones_menu.add_command(label="Inscripciones por Alumno", command=self.show_courses_by_student)
-        inscripciones_menu.add_command(label="Inscripcion Masiva", command=self.show_bulk_enrollment)
-        menubar.add_cascade(label="Inscripciones", menu=inscripciones_menu)
-
-        # Menú Pagos
-        pagos_menu = tk.Menu(menubar, tearoff=0)
-        pagos_menu.add_command(label="Ver Pagos", command=self.show_payments)
-        pagos_menu.add_command(label="Añadir Pago", command=self.add_payment_window)
-        pagos_menu.add_command(label="Pagos por Inscripción", command=self.show_payments_by_inscription)
-        pagos_menu.add_command(label="Actualizar Estado", command=self.update_payment_status_window)
-        pagos_menu.add_command(label="Actualizar Cuotas", command=self.manage_cuotas_pagare_window)
-        pagos_menu.add_command(label="Pagos Pendientes", command=self.show_pending_payments)
-        menubar.add_cascade(label="Pagos", menu=pagos_menu)
-
-        # Menú Facturación
-        facturas_menu = tk.Menu(menubar, tearoff=0)
-        facturas_menu.add_command(label="Ver Facturas", command=self.show_invoices)
-        facturas_menu.add_command(label="Añadir Factura", command=self.add_invoice_window)
-        menubar.add_cascade(label="Facturación", menu=facturas_menu)
-
-        # Menú Tramitaciones
-        tramitaciones_menu = tk.Menu(menubar, tearoff=0)
-        tramitaciones_menu.add_command(label="Ver Tramitaciones", command=self.show_tramitaciones)
-        # Podrías añadir ítems aquí si lo requieres
-        menubar.add_cascade(label="Tramitaciones", menu=tramitaciones_menu)
-
-        # Menú Cotizaciones
-        cotizaciones_menu = tk.Menu(menubar, tearoff=0)
-        cotizaciones_menu.add_command(label="Ver Cotizaciones", command=self.show_cotizaciones)
-        cotizaciones_menu.add_command(label="Generar Cotizacion", command=self.show_cotizacion_window)
-        menubar.add_cascade(label="Cotizaciones", menu=cotizaciones_menu)
-
-        # Menú empresas
-        empresas_menu = tk.Menu(menubar, tearoff=0)
-        empresas_menu.add_command(label="Ver Empresas", command=self.show_empresas)
-        empresas_menu.add_command(label="Añadir y Editar Empresa", command=self.manage_empresa_window)
-        empresas_menu.add_command(label="Gestionar Contactos", command=self.manage_contacts_window)
-        menubar.add_cascade(label="Empresas", menu=empresas_menu)
-
+        # Agregar comandos directos en el menubar (sin submenús)
+        menubar.add_command(label="Cursos", command=self.show_courses)
+        menubar.add_command(label="Alumnos", command=self.show_students)
+        menubar.add_command(label="Inscripciones", command=self.show_inscriptions)
+        menubar.add_command(label="Pagos", command=self.show_payments)
+        menubar.add_command(label="Facturación", command=self.show_invoices)
+        menubar.add_command(label="Cotizaciones", command=self.show_cotizaciones)
+        menubar.add_command(label="Empresas", command=self.show_empresas)
+        menubar.add_command(label="Alumnos Activos", command=self.show_active_students) 
+        #   menubar.add_command(label="Cursos Activos", command=self.show_active_courses)
+        menubar.add_command(label="Tramitaciones", command=self.show_tramitaciones)
+        menubar.add_command(label='Tramitar', command=self.show_tramitar)
+              
     def _clear_main_content(self):
         """Limpia solo el contenido principal preservando el header"""
         try:
@@ -422,13 +396,15 @@ class App:
         self.context_menu = tk.Menu(self.root, tearoff=0)
         self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
         self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="Cancelar", command=self.context_menu.unpost)
-
+        
+        # Inicializar variables para tracking de posición
+        self.last_click_x = 0
+        self.last_click_y = 0
+        
         # Vincular eventos
-        self.tree.bind("<Button-3>", self._show_context_menu)  # Clic derecho
-        self.tree.bind("<Control-c>", lambda e: self._copy_selected_cell())  # Ctrl+C
-        self.tree.bind("<Control-r>", lambda e: self._copy_selected_row())   # Ctrl+R
+        self.tree.bind("<Button-3>", self._show_context_menu)
+        self.tree.bind("<Button-1>", self._save_click_position)
+        self.tree.bind("<Button-3>", self._save_click_position)
 
     def _update_title_label(self, text):
         """
@@ -440,15 +416,24 @@ class App:
         if self.title_label:
             self.title_label.config(text=text)
 
+    def _save_click_position(self, event):
+        """Guarda la posición del último click"""
+        self.last_click_x = event.x_root
+        self.last_click_y = event.y_root
+
     def _show_context_menu(self, event):
         """Muestra el menú contextual en la posición del clic"""
         try:
-            self.tree.selection_set(self.tree.identify_row(event.y))
-            self.context_menu.post(event.x_root, event.y_root)
-            return "break"
-        except:
-            pass
-       
+            # Identificar y seleccionar la fila
+            item = self.tree.identify_row(event.y)
+            if item:
+                self.tree.selection_set(item)
+                self._save_click_position(event)
+                self.context_menu.post(event.x_root, event.y_root)
+            return "break"  # Prevenir el menú contextual por defecto
+        except Exception as e:
+            print(f"Error al mostrar menú contextual: {e}")
+
     def _copy_selected_cell(self):
         """Copia el contenido de la celda seleccionada"""
         try:
@@ -456,22 +441,23 @@ class App:
             if not selection:
                 return
 
-            # Obtener la columna seleccionada o usar la primera
-            column = self.tree.identify_column(self.tree.winfo_pointerx() - self.tree.winfo_rootx())
+            # Obtener la columna seleccionada
+            column = self.tree.identify_column(self.last_click_x - self.tree.winfo_rootx())
             if not column:
                 column = '#1'
 
-            col_id = int(str(column).replace('#', '')) - 1
+            # Obtener el índice de la columna
+            col_id = int(column.replace('#', '')) - 1
+            
+            # Obtener el valor de la celda
             cell_value = self.tree.item(selection[0])['values'][col_id]
 
             # Copiar al portapapeles
             self.root.clipboard_clear()
             self.root.clipboard_append(str(cell_value))
-
-            # Mostrar mensaje de éxito
-            messagebox.showinfo("Copiado", f"Valor copiado al portapapeles:\n{cell_value}")
+            
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo copiar el valor: {str(e)}")
+            print(f"Error al copiar celda: {e}")
 
     def _copy_selected_row(self):
         """Copia toda la fila seleccionada"""
@@ -490,10 +476,8 @@ class App:
             self.root.clipboard_clear()
             self.root.clipboard_append(row_text)
             
-            # Mostrar mensaje de éxito
-            messagebox.showinfo("Copiado", "Fila completa copiada al portapapeles")
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo copiar la fila: {str(e)}")
+            print(f"Error al copiar fila: {e}")
 
     def _populate_tree(self, columns, headers, data):
         self.tree.delete(*self.tree.get_children())
@@ -526,48 +510,140 @@ class App:
     # =================================================================
     def show_inscriptions(self):
         try:
-            # Limpiar solo el contenido principal
+            # Limpiar el contenido principal
             self._clear_main_content()
             
             # Actualizar el título
             self._update_title_label("Listado de Inscripciones")
             
-            # Crear frame para el contenido principal
+            # Crear frame principal
             content_frame = ttk.Frame(self.main_frame)
             content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+            # Frame para los botones
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=(0, 5))
             
-            # Crear frame para el treeview
+            # Botones de acción
+            ttk.Button(
+                button_frame,
+                text="Nueva Inscripción",
+                command=self.enroll_student_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Buscar Inscripciones",
+                command=self.show_inscriptions_search,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Modificar Inscripción",
+                command=self.update_inscription_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Eliminar Inscripción",
+                command=self.delete_inscription_window,
+                style='delete.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Inscripción Masiva",
+                command=self.show_bulk_enrollment,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            # Frame para el treeview y scrollbars
             tree_frame = ttk.Frame(content_frame)
             tree_frame.pack(fill=tk.BOTH, expand=True)
-            
-            # Crear y configurar scrollbar
-            scrollbar = ttk.Scrollbar(tree_frame)
-            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            
-            # Crear el treeview
-            self.tree = ttk.Treeview(tree_frame, yscrollcommand=scrollbar.set)
-            self.tree.pack(fill=tk.BOTH, expand=True)
-            
-            # Configurar scrollbar
-            scrollbar.config(command=self.tree.yview)
-            
-            # Definir las columnas y headers
+            tree_frame.grid_rowconfigure(0, weight=1)
+            tree_frame.grid_columnconfigure(0, weight=1)
+
+            # Configurar estilo del Treeview
+            style = ttk.Style()
+            style.configure("Treeview",
+                background="#ffffff",
+                foreground="black",
+                rowheight=25,
+                fieldbackground="#ffffff"
+            )
+            style.configure("Treeview.Heading",
+                background="#e1e1e1",
+                foreground="black",
+                relief="flat"
+            )
+            style.map('Treeview',
+                background=[('selected', '#0078D7')],
+                foreground=[('selected', 'white')]
+            )
+
+            # Scrollbars
+            vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+            hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+            # Crear Treeview
+            self.tree = ttk.Treeview(
+                tree_frame,
+                selectmode="extended",
+                yscrollcommand=vscroll.set,
+                xscrollcommand=hscroll.set
+            )
+
+            # Ubicar tree y scrollbars
+            self.tree.grid(row=0, column=0, sticky="nsew")
+            vscroll.grid(row=0, column=1, sticky="ns")
+            hscroll.grid(row=1, column=0, sticky="ew")
+
+            # Configurar scrollbars
+            vscroll.configure(command=self.tree.yview)
+            hscroll.configure(command=self.tree.xview)
+
+            # Menú contextual
+            self.context_menu = tk.Menu(tree_frame, tearoff=0)
+            self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
+            self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+
+            # Track de posición del click
+            self.last_click_x = 0
+            self.last_click_y = 0
+
+            # Bindings para el menú contextual
+            self.tree.bind("<Button-3>", self._show_context_menu)
+            self.tree.bind("<Button-1>", self._save_click_position)
+            self.tree.bind("<ButtonRelease-3>", self._save_click_position)
+
+            # Configurar tags para estados
+            self.tree.tag_configure('pendiente', background='#FFF3CD')  # Amarillo claro
+            self.tree.tag_configure('pagado', background='#D4EDDA')    # Verde claro
+            self.tree.tag_configure('cancelado', background='#F8D7DA') # Rojo claro
+            self.tree.tag_configure('sin_procesar', background='#E2E3E5') # Gris claro
+            self.tree.tag_configure('oddrow', background='#f5f5f5')
+            self.tree.tag_configure('evenrow', background='#ffffff')
+
+            # Definir columnas
             columns = (
                 "ID", "N_Acta", "RUT", "Nombre_Completo",
                 "ID_Curso", "F_Inscripcion", "F_Termino",
                 "Año", "Empresa", "Codigo_Sence", "Folio", "Estado_Pago"
             )
-                
+            
             headers = (
                 "ID", "N° Acta", "RUT", "Nombre Completo",
                 "Curso", "F. Inscripción", "F. Término",
                 "Año", "Empresa", "Código SENCE", "Folio", "Estado"
             )
 
-            # Obtener datos y formatearlos
+            # Obtener datos
             data_raw = fetch_inscriptions()
             formatted_data = []
-                
+            
             if data_raw:
                 for inscription in data_raw:
                     formatted = format_inscription_data(inscription)
@@ -587,11 +663,11 @@ class App:
                             formatted.get("Estado_Pago", "SIN PROCESAR")
                         ]
                         formatted_data.append(row)
-            
-            # Configurar el tree
+
+            # Configurar Treeview
             self.tree.config(columns=columns, show="headings")
-                
-            # Configurar columnas
+            
+            # Definir anchos de columnas
             column_widths = {
                 "ID": 50,
                 "N_Acta": 60,
@@ -607,42 +683,241 @@ class App:
                 "Estado_Pago": 90
             }
 
-            # Aplicar configuración de columnas
+            # Aplicar configuraciones de columnas
             for column, header in zip(columns, headers):
                 self.tree.heading(column, text=header, anchor=tk.CENTER)
                 width = column_widths.get(column, 100)
                 self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
+
+            # Insertar datos en el Treeview
+            for i, item in enumerate(formatted_data):
+                estado = item[-1].lower() if item[-1] else 'sin_procesar'
                 
-            # Insertar datos y aplicar colores según el estado
-            for item in formatted_data:
-                estado = item[-1]  # El estado es la última columna
-                tag = self._get_estado_tag(estado)
-                self.tree.insert("", "end", values=item, tags=(tag,))
+                # Determinar el tag del estado
+                if estado == 'pendiente':
+                    estado_tag = 'pendiente'
+                elif estado == 'pagado':
+                    estado_tag = 'pagado'
+                elif estado == 'cancelado':
+                    estado_tag = 'cancelado'
+                else:
+                    estado_tag = 'sin_procesar'
                 
-            # Configurar colores para los diferentes estados
-            self.tree.tag_configure('pendiente', background='#FFF3CD')
-            self.tree.tag_configure('pagado', background='#D4EDDA')
-            self.tree.tag_configure('cancelado', background='#F8D7DA')
-            self.tree.tag_configure('sin_procesar', background='#E2E3E5')
-                    
+                # Aplicar tags
+                row_tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+                self.tree.insert("", "end", values=item, tags=(estado_tag, row_tag))
+
+            # Forzar actualización del Treeview
+            self.tree.update_idletasks()
+
         except Exception as e:
             print(f"Error al mostrar inscripciones: {e}")
             import traceback
             traceback.print_exc()
 
-    def _get_estado_tag(self, estado):
-        """
-        Determina el tag de color según el estado del pago
-        """
-        estado = estado.lower()
-        if estado == 'pendiente':
-            return 'pendiente'
-        elif estado == 'pagado':
-            return 'pagado'
-        elif estado == 'cancelado':
-            return 'cancelado'
-        else:  # 'SIN PROCESAR'
-            return 'sin_procesar'
+    def show_inscriptions_search(self):
+        # Ventana renombrada a "Buscar inscripciones"
+        search_window = tk.Toplevel(self.root)
+        search_window.title("Buscar inscripciones")
+        search_window.configure(bg="#f0f5ff")
+        search_window.grab_set()
+        search_window.focus_force()
+
+        # Centrar ventana
+        width, height = 500, 350
+        sw = search_window.winfo_screenwidth()
+        sh = search_window.winfo_screenheight()
+        x = (sw // 2) - (width // 2)
+        y = (sh // 2) - (height // 2)
+        search_window.geometry(f"{width}x{height}+{x}+{y}")
+
+        try:
+            search_window.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar el ícono: {e}")
+
+        # Frame principal
+        main_frame = tk.Frame(search_window, bg="#f0f5ff", padx=20, pady=20)
+        main_frame.pack(fill='both', expand=True)
+
+        # Título
+        title_label = tk.Label(
+            main_frame,
+            text="Buscar inscripciones",
+            font=("Helvetica", 16, "bold"),
+            bg="#f0f5ff",
+            fg="#022e86"
+        )
+        title_label.pack(pady=(0, 20))
+
+        # Campo: RUT Alumno
+        frame_rut = tk.Frame(main_frame, bg="#f0f5ff")
+        frame_rut.pack(fill='x', pady=5)
+        tk.Label(
+            frame_rut,
+            text="RUT Alumno:",
+            bg="#f0f5ff",
+            fg="#022e86",
+            font=("Helvetica", 10),
+            width=15,
+            anchor='w'
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        rut_entry = tk.Entry(frame_rut, font=("Helvetica", 10), relief="solid", bd=1, width=25)
+        rut_entry.pack(side=tk.LEFT, fill='x', expand=True)
+
+        # Campo: Nº Acta
+        frame_acta = tk.Frame(main_frame, bg="#f0f5ff")
+        frame_acta.pack(fill='x', pady=5)
+        tk.Label(
+            frame_acta,
+            text="Nº Acta:",
+            bg="#f0f5ff",
+            fg="#022e86",
+            font=("Helvetica", 10),
+            width=15,
+            anchor='w'
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        acta_entry = tk.Entry(frame_acta, font=("Helvetica", 10), relief="solid", bd=1, width=25)
+        acta_entry.pack(side=tk.LEFT, fill='x', expand=True)
+
+        # Campo: Nombre Alumno
+        frame_nombre = tk.Frame(main_frame, bg="#f0f5ff")
+        frame_nombre.pack(fill='x', pady=5)
+        tk.Label(
+            frame_nombre,
+            text="Nombre Alumno:",
+            bg="#f0f5ff",
+            fg="#022e86",
+            font=("Helvetica", 10),
+            width=15,
+            anchor='w'
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        nombre_entry = tk.Entry(frame_nombre, font=("Helvetica", 10), relief="solid", bd=1, width=25)
+        nombre_entry.pack(side=tk.LEFT, fill='x', expand=True)
+
+        # Campo: Fecha o Rango de Fecha (para F_Inscripcion)
+        frame_fecha = tk.Frame(main_frame, bg="#f0f5ff")
+        frame_fecha.pack(fill='x', pady=5)
+        tk.Label(
+            frame_fecha,
+            text="Fecha (YYYY-MM-DD):",
+            bg="#f0f5ff",
+            fg="#022e86",
+            font=("Helvetica", 10),
+            width=15,
+            anchor='w'
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        fecha_inicio_entry = tk.Entry(frame_fecha, font=("Helvetica", 10), relief="solid", bd=1, width=10)
+        fecha_inicio_entry.pack(side=tk.LEFT)
+        tk.Label(
+            frame_fecha,
+            text="a",
+            bg="#f0f5ff",
+            fg="#022e86",
+            font=("Helvetica", 10)
+        ).pack(side=tk.LEFT, padx=5)
+        fecha_fin_entry = tk.Entry(frame_fecha, font=("Helvetica", 10), relief="solid", bd=1, width=10)
+        fecha_fin_entry.pack(side=tk.LEFT)
+
+        # Función de búsqueda
+        def search():
+            rut = rut_entry.get().strip()
+            act_number = acta_entry.get().strip()
+            nombre = nombre_entry.get().strip()
+            fecha_inicio = fecha_inicio_entry.get().strip()
+            fecha_fin = fecha_fin_entry.get().strip()
+
+            # Se requiere al menos un criterio de búsqueda
+            if not (rut or act_number or nombre or fecha_inicio):
+                messagebox.showwarning(
+                    "Error",
+                    "Ingrese al menos un criterio de búsqueda (RUT, Nº Acta, Nombre o Fecha).",
+                    parent=search_window
+                )
+                return
+
+            # Llamamos a la consulta con los parámetros no vacíos
+            inscripciones = fetch_inscriptions_filtered(
+                rut=rut if rut else None,
+                act_number=act_number if act_number else None,
+                nombre=nombre if nombre else None,
+                fecha_inicio=fecha_inicio if fecha_inicio else None,
+                fecha_fin=fecha_fin if fecha_fin else None
+            )
+
+            # Se actualiza el treeview principal con TODA la información de la inscripción
+            if inscripciones:
+                # Se espera que _populate_tree reciba:
+                # - Una tupla de claves (o índices) correspondientes a las columnas de la consulta.
+                # - Una tupla de títulos para las columnas.
+                # - Los datos (lista de tuplas).
+                self._populate_tree(
+                    (
+                        "ID",
+                        "N_Acta",
+                        "RUT",
+                        "Nombre_Completo",
+                        "ID_Curso",
+                        "F_Inscripcion",
+                        "F_Termino",
+                        "Año",
+                        "Empresa",
+                        "Codigo_Sence",
+                        "Folio",
+                        "Estado_Pago"
+                    ),
+                    (
+                        "ID",
+                        "N° Acta",
+                        "RUT",
+                        "Alumno",
+                        "ID Curso",
+                        "F. Inscripción",
+                        "F. Término",
+                        "Año",
+                        "Empresa",
+                        "Código Sence",
+                        "Folio",
+                        "Estado Pago"
+                    ),
+                    inscripciones
+                )
+                self._update_title_label("Inscripciones filtradas")
+                search_window.destroy()
+            else:
+                messagebox.showinfo(
+                    "Información",
+                    "No se encontraron inscripciones con los criterios ingresados.",
+                    parent=search_window
+                )
+
+        # Frame para botones
+        button_frame = tk.Frame(main_frame, bg="#f0f5ff")
+        button_frame.pack(pady=20)
+        tk.Button(
+            button_frame,
+            text="Buscar",
+            bg="#022e86",
+            fg="white",
+            font=("Helvetica", 10, "bold"),
+            relief="flat",
+            padx=20,
+            pady=8,
+            cursor="hand2",
+            command=search
+        ).pack(side=tk.LEFT, padx=5)
+        tk.Button(
+            button_frame,
+            text="Cancelar",
+            bg="#666666",
+            fg="white",
+            font=("Helvetica", 10),
+            relief="flat",
+            padx=20,
+            pady=8,
+            cursor="hand2",
+            command=search_window.destroy
+        ).pack(side=tk.LEFT, padx=5)
 
     def enroll_student_window(self):
         enroll_window = tk.Toplevel(self.root)
@@ -1140,69 +1415,37 @@ class App:
         window.focus_force()
 
         # Configuración de la ventana
-        width, height = 800, 450
-        scr_w = window.winfo_screenwidth()
-        scr_h = window.winfo_screenheight()
-        x = (scr_w // 2) - (width // 2)
-        y = (scr_h // 2) - (height // 2)
+        width, height = 800, 400
+        x = (window.winfo_screenwidth() // 2) - (width // 2)
+        y = (window.winfo_screenheight() // 2) - (height // 2)
         window.geometry(f"{width}x{height}+{x}+{y}")
 
-        try:
-            window.iconbitmap('assets/logo1.ico')
-        except Exception as e:
-            print(f"Error al cargar ícono: {e}")
-
         # Frame principal
-        main_frame = tk.Frame(window, bg="#f0f5ff", padx=30, pady=20)
+        main_frame = tk.Frame(window, bg="#f0f5ff", padx=20, pady=20)
         main_frame.pack(fill='both', expand=True)
 
-        # Título
-        title_label = tk.Label(
-            main_frame,
-            text="Actualizar Inscripción",
-            font=("Helvetica", 16, "bold"),
-            bg="#f0f5ff",
-            fg="#022e86"
-        )
-        title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
+        # Frame de búsqueda
+        search_frame = tk.Frame(main_frame, bg="#f0f5ff")
+        search_frame.pack(fill='x', pady=(0, 20))
 
-        # Variables
-        id_alumno_var = tk.StringVar()
-        id_curso_var = tk.StringVar()
-        numero_acta_var = tk.StringVar()
-        fecha_inscripcion_var = tk.StringVar()
-        fecha_termino_var = tk.StringVar()
-        anio_var = tk.StringVar()
-        metodo_llegada_var = tk.StringVar()
-        id_empresa_var = tk.StringVar()
-        orden_sence_var = tk.StringVar()
-        id_folio_var = tk.StringVar()
-
-        def create_label_entry(parent, label_text, row, col, var=None):
+        # Etiquetas y campos
+        def create_label_entry(parent, text, row, column):
             tk.Label(
-                parent,
-                text=label_text,
+                parent, 
+                text=text,
                 bg="#f0f5ff",
                 fg="#022e86",
-                font=("Helvetica", 10),
-                anchor='e'
-            ).grid(row=row, column=col, padx=(10, 5), pady=10, sticky='e')
+                font=("Helvetica", 10)
+            ).grid(row=row, column=column*2, padx=10, pady=5, sticky='e')
             
             entry = tk.Entry(
                 parent,
-                width=35,
-                font=("Helvetica", 10),
-                relief="solid",
-                bd=1,
-                textvariable=var
+                width=30
             )
-            entry.grid(row=row, column=col+1, padx=(0, 20), pady=10, sticky='w')
+            entry.grid(row=row, column=column*2 + 1, padx=5, pady=5, sticky='w')
             return entry
 
-        # Frame para búsqueda de ID
-        search_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        search_frame.grid(row=1, column=0, columnspan=4, pady=(0, 20))
-
+        # Frame para búsqueda
         tk.Label(
             search_frame,
             text="ID Inscripción:",
@@ -1211,82 +1454,85 @@ class App:
             font=("Helvetica", 10, "bold")
         ).pack(side='left', padx=5)
 
-        id_inscripcion_entry = tk.Entry(
-            search_frame,
-            width=20,
-            font=("Helvetica", 10),
-            relief="solid",
-            bd=1
-        )
+        id_inscripcion_entry = tk.Entry(search_frame, width=15)
         id_inscripcion_entry.pack(side='left', padx=5)
+
+        # Frame para campos
+        fields_frame = tk.Frame(main_frame, bg="#f0f5ff")
+        fields_frame.pack(fill='both', expand=True)
+
+        # Crear entradas
+        rut_entry = create_label_entry(fields_frame, "RUT Alumno:", 0, 0)
+        curso_entry = create_label_entry(fields_frame, "ID Curso:", 1, 0)
+        acta_entry = create_label_entry(fields_frame, "Número Acta:", 2, 0)
+        fecha_insc_entry = create_label_entry(fields_frame, "Fecha Inscripción:", 3, 0)
+        anio_entry = create_label_entry(fields_frame, "Año:", 4, 0)
+
+        fecha_term_entry = create_label_entry(fields_frame, "Fecha Término:", 0, 1)
+        empresa_entry = create_label_entry(fields_frame, "ID Empresa:", 1, 1)
+        sence_entry = create_label_entry(fields_frame, "Orden SENCE:", 2, 1)
+        folio_entry = create_label_entry(fields_frame, "ID Folio:", 3, 1)
+
+        # Método de llegada (combobox)
+        tk.Label(
+            fields_frame,
+            text="Método de Llegada:",
+            bg="#f0f5ff",
+            fg="#022e86",
+            font=("Helvetica", 10)
+        ).grid(row=4, column=2, padx=10, pady=5, sticky='e')
+
+        metodo_combo = ttk.Combobox(
+            fields_frame,
+            values=["PARTICULAR", "EMPRESA"],
+            state="readonly",
+            width=27
+        )
+        metodo_combo.grid(row=4, column=3, padx=5, pady=5, sticky='w')
+        metodo_combo.set("PARTICULAR")
 
         def load_inscription_data():
             id_inscripcion = id_inscripcion_entry.get().strip()
             if not id_inscripcion:
                 messagebox.showwarning("Error", "Ingrese el ID de inscripción", parent=window)
                 return
-                
-            # Aquí necesitarás crear una función que obtenga los datos de la inscripción
-            inscription = fetch_inscription_by_id(id_inscripcion)  # Deberás crear esta función
+
+            inscription = fetch_inscription_by_id(id_inscripcion)
             if not inscription:
                 messagebox.showerror("Error", f"No se encontró inscripción con ID {id_inscripcion}", parent=window)
                 return
 
-            id_alumno_var.set(inscription[1] or "")
-            id_curso_var.set(inscription[2] or "")
-            numero_acta_var.set(inscription[8] or "")
-            fecha_inscripcion_var.set(inscription[3] or "")
-            fecha_termino_var.set(inscription[4] or "")
-            anio_var.set(inscription[5] or "")
-            metodo_llegada_var.set(inscription[6] or "")
-            id_empresa_var.set(inscription[7] or "")
-            orden_sence_var.set(inscription[9] or "")
-            id_folio_var.set(inscription[10] or "")
+            # Limpiar campos
+            for entry in [rut_entry, curso_entry, acta_entry, fecha_insc_entry, anio_entry,
+                        fecha_term_entry, empresa_entry, sence_entry, folio_entry]:
+                entry.delete(0, tk.END)
 
+            # Llenar campos
+            rut_entry.insert(0, inscription['id_alumno'] or '')
+            curso_entry.insert(0, inscription['id_curso'] or '')
+            acta_entry.insert(0, inscription['numero_acta'] or '')
+            if inscription['fecha_inscripcion']:
+                fecha_insc_entry.insert(0, inscription['fecha_inscripcion'].strftime('%Y-%m-%d'))
+            if inscription['fecha_termino_condicional']:
+                fecha_term_entry.insert(0, inscription['fecha_termino_condicional'].strftime('%Y-%m-%d'))
+            anio_entry.insert(0, inscription['anio_inscripcion'] or '')
+            empresa_entry.insert(0, inscription['id_empresa'] or '')
+            sence_entry.insert(0, inscription['ordenSence'] or '')
+            folio_entry.insert(0, inscription['idfolio'] or '')
+            
+            # Establecer método de llegada
+            metodo = inscription['metodo_llegada']
+            metodo_combo.set(metodo.upper() if metodo else "PARTICULAR")
+
+        # Botón de búsqueda
         tk.Button(
             search_frame,
             text="Buscar",
             bg="#022e86",
             fg="white",
             font=("Helvetica", 10),
-            relief="flat",
-            padx=15,
             command=load_inscription_data
-        ).pack(side='left', padx=5)
-
-        # Configurar el grid
-        main_frame.grid_columnconfigure(1, weight=1)
-        main_frame.grid_columnconfigure(3, weight=1)
-
-        # Campos - organizados en dos columnas
-        create_label_entry(main_frame, "RUT Alumno:", 2, 0, id_alumno_var)
-        create_label_entry(main_frame, "ID Curso:", 3, 0, id_curso_var)
-        create_label_entry(main_frame, "Número Acta:", 4, 0, numero_acta_var)
-        create_label_entry(main_frame, "Fecha Inscripción:", 5, 0, fecha_inscripcion_var)
-        create_label_entry(main_frame, "Año:", 6, 0, anio_var)
-
-        create_label_entry(main_frame, "Fecha Término:", 2, 2, fecha_termino_var)
-        create_label_entry(main_frame, "ID Empresa:", 3, 2, id_empresa_var)
-        create_label_entry(main_frame, "Orden SENCE:", 4, 2, orden_sence_var)
-        create_label_entry(main_frame, "ID Folio:", 5, 2, id_folio_var)
-
-        # Método de llegada (combobox)
-        tk.Label(
-            main_frame,
-            text="Método de Llegada:",
-            bg="#f0f5ff",
-            fg="#022e86",
-            font=("Helvetica", 10),
-            anchor='e'
-        ).grid(row=6, column=2, padx=(10, 5), pady=10, sticky='e')
-
-        metodo_combo = ttk.Combobox(
-            main_frame,
-            values=["PARTICULAR", "EMPRESA"],
-            state="readonly",
-            width=33
-        )
-        metodo_combo.grid(row=6, column=3, padx=(0, 20), pady=10, sticky='w')
+        ).pack(side='left', padx=10)
 
         def save_changes():
             id_inscripcion = id_inscripcion_entry.get().strip()
@@ -1294,32 +1540,20 @@ class App:
                 messagebox.showwarning("Error", "Ingrese el ID de inscripción", parent=window)
                 return
 
-            # Procesar empresa si se proporciona
-            id_empresa = id_empresa_var.get().strip()
-            if id_empresa and metodo_combo.get() == "EMPRESA":
-                print(f"Procesando empresa: {id_empresa}")
-                id_empresa = get_or_create_empresa(id_empresa)
-                if id_empresa is None:
-                    messagebox.showerror(
-                        "Error",
-                        "No se pudo procesar la empresa. Verifique el nombre.",
-                        parent=window
-                    )
-                    return
+            update_data = {
+                'id_alumno': rut_entry.get().strip() or None,
+                'id_curso': curso_entry.get().strip() or None,
+                'numero_acta': acta_entry.get().strip() or None,
+                'fecha_inscripcion': fecha_insc_entry.get().strip() or None,
+                'fecha_termino_condicional': fecha_term_entry.get().strip() or None,
+                'anio_inscripcion': anio_entry.get().strip() or None,
+                'metodo_llegada': metodo_combo.get().lower() if metodo_combo.get() else None,
+                'id_empresa': empresa_entry.get().strip() or None,
+                'ordenSence': sence_entry.get().strip() or None,
+                'idfolio': folio_entry.get().strip() or None
+            }
 
-            success, message = update_inscription(
-                id_inscripcion=id_inscripcion,
-                id_alumno=id_alumno_var.get().strip() or None,
-                id_curso=id_curso_var.get().strip() or None,
-                numero_acta=numero_acta_var.get().strip() or None,
-                fecha_inscripcion=fecha_inscripcion_var.get().strip() or None,
-                fecha_termino_condicional=fecha_termino_var.get().strip() or None,
-                anio_inscripcion=anio_var.get().strip() or None,
-                metodo_llegada=metodo_combo.get() or None,
-                id_empresa=id_empresa,  # Aquí usamos el id_empresa procesado
-                ordenSence=orden_sence_var.get().strip() or None,
-                idfolio=id_folio_var.get().strip() or None
-            )
+            success, message = update_inscription(id_inscripcion, **update_data)
 
             if success:
                 messagebox.showinfo("Éxito", message, parent=window)
@@ -1328,30 +1562,18 @@ class App:
             else:
                 messagebox.showerror("Error", message, parent=window)
 
-            if success:
-                messagebox.showinfo("Éxito", message, parent=window)
-                window.destroy()
-                self.show_inscriptions()
-            else:
-                messagebox.showerror("Error", message, parent=window)
-
-        # Botón de guardar
-        button_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        button_frame.grid(row=7, column=0, columnspan=4, pady=30)
-
+        # Botón guardar
         tk.Button(
-            button_frame,
+            main_frame,
             text="Guardar Cambios",
             bg="#022e86",
             fg="white",
             font=("Helvetica", 10, "bold"),
-            relief="flat",
             padx=30,
             pady=10,
-            cursor="hand2",
             command=save_changes
-        ).pack()
-
+        ).pack(pady=20)
+        
     def show_bulk_enrollment(self):
         from gui.bulk_enrollment import BulkEnrollment
         bulk_window = BulkEnrollment(self.root)
@@ -1370,28 +1592,77 @@ class App:
             # Crear frame para el contenido principal
             content_frame = ttk.Frame(self.main_frame)
             content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+            # Frame para botones
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=(0, 5))
             
-            # Crear frame para el treeview y scrollbars
+            # Botones de acción
+            ttk.Button(
+                button_frame,
+                text="Nuevo Curso",
+                command=self.add_course_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Modificar Curso",
+                command=self.edit_course_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Eliminar Curso",
+                command=self.delete_course_window,
+                style='delete.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+            
+            # Frame para el treeview y scrollbars
             tree_frame = ttk.Frame(content_frame)
             tree_frame.pack(fill=tk.BOTH, expand=True)
-            
-            # Crear y configurar scrollbar vertical
-            v_scrollbar = ttk.Scrollbar(tree_frame)
-            v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            
-            # Crear y configurar scrollbar horizontal
-            h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
-            h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-            
-            # Crear el treeview
-            self.tree = ttk.Treeview(tree_frame, 
-                                    yscrollcommand=v_scrollbar.set,
-                                    xscrollcommand=h_scrollbar.set)
-            self.tree.pack(fill=tk.BOTH, expand=True)
-            
+            tree_frame.grid_rowconfigure(0, weight=1)
+            tree_frame.grid_columnconfigure(0, weight=1)
+
+            # Scrollbars
+            vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+            hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+            # Crear Treeview
+            self.tree = ttk.Treeview(
+                tree_frame,
+                selectmode="extended",
+                yscrollcommand=vscroll.set,
+                xscrollcommand=hscroll.set
+            )
+
+            # Configurar grid
+            self.tree.grid(row=0, column=0, sticky="nsew")
+            vscroll.grid(row=0, column=1, sticky="ns")
+            hscroll.grid(row=1, column=0, sticky="ew")
+
             # Configurar scrollbars
-            v_scrollbar.config(command=self.tree.yview)
-            h_scrollbar.config(command=self.tree.xview)
+            vscroll.configure(command=self.tree.yview)
+            hscroll.configure(command=self.tree.xview)
+
+            # Configurar menú contextual
+            self.context_menu = tk.Menu(tree_frame, tearoff=0)
+            self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
+            self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+
+            # Variables para tracking
+            self.last_click_x = 0
+            self.last_click_y = 0
+
+            # Bindings para el menú contextual
+            self.tree.bind("<Button-3>", self._show_context_menu)
+            self.tree.bind("<Button-1>", self._save_click_position)
+            self.tree.bind("<ButtonRelease-3>", self._save_click_position)
+
+            # Configurar tags
+            self.tree.tag_configure('oddrow', background='#f5f5f5')
+            self.tree.tag_configure('evenrow', background='#ffffff')
             
             # Definir columnas y headers
             columns = (
@@ -1458,9 +1729,10 @@ class App:
                 width, stretch = column_widths.get(column, (100, False))
                 self.tree.column(column, width=width, stretch=stretch, anchor=tk.CENTER)
                 
-            # Insertar datos
-            for course in courses:
-                self.tree.insert("", "end", values=course)
+            # Insertar datos con colores alternados
+            for i, course in enumerate(courses):
+                tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+                self.tree.insert("", "end", values=course, tags=(tag,))
 
         except Exception as e:
             print(f"Error al mostrar cursos: {e}")
@@ -2112,28 +2384,84 @@ class App:
             # Crear frame para el contenido principal
             content_frame = ttk.Frame(self.main_frame)
             content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+            # Frame para botones
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=(0, 5))
             
-            # Crear frame para el treeview y scrollbars
+            # Botones de acción
+            ttk.Button(
+                button_frame,
+                text="Nuevo Alumno",
+                command=self.add_student_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Modificar Alumno",
+                command=self.edit_student_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Buscar Alumno",
+                command=self.search_student_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Eliminar Alumno",
+                command=self.delete_student_window,
+                style='delete.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+            
+            # Frame para el treeview y scrollbars
             tree_frame = ttk.Frame(content_frame)
             tree_frame.pack(fill=tk.BOTH, expand=True)
-            
-            # Crear y configurar scrollbar vertical
-            v_scrollbar = ttk.Scrollbar(tree_frame)
-            v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            
-            # Crear y configurar scrollbar horizontal
-            h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
-            h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-            
-            # Crear el treeview
-            self.tree = ttk.Treeview(tree_frame, 
-                                    yscrollcommand=v_scrollbar.set,
-                                    xscrollcommand=h_scrollbar.set)
-            self.tree.pack(fill=tk.BOTH, expand=True)
-            
+            tree_frame.grid_rowconfigure(0, weight=1)
+            tree_frame.grid_columnconfigure(0, weight=1)
+
+            # Scrollbars
+            vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+            hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+            # Crear Treeview
+            self.tree = ttk.Treeview(
+                tree_frame,
+                selectmode="extended",
+                yscrollcommand=vscroll.set,
+                xscrollcommand=hscroll.set
+            )
+
+            # Configurar grid
+            self.tree.grid(row=0, column=0, sticky="nsew")
+            vscroll.grid(row=0, column=1, sticky="ns")
+            hscroll.grid(row=1, column=0, sticky="ew")
+
             # Configurar scrollbars
-            v_scrollbar.config(command=self.tree.yview)
-            h_scrollbar.config(command=self.tree.xview)
+            vscroll.configure(command=self.tree.yview)
+            hscroll.configure(command=self.tree.xview)
+
+            # Configurar menú contextual
+            self.context_menu = tk.Menu(tree_frame, tearoff=0)
+            self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
+            self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+
+            # Variables para tracking
+            self.last_click_x = 0
+            self.last_click_y = 0
+
+            # Bindings para el menú contextual
+            self.tree.bind("<Button-3>", self._show_context_menu)
+            self.tree.bind("<Button-1>", self._save_click_position)
+            self.tree.bind("<ButtonRelease-3>", self._save_click_position)
+
+            # Configurar tags
+            self.tree.tag_configure('oddrow', background='#f5f5f5')
+            self.tree.tag_configure('evenrow', background='#ffffff')
             
             # Definir columnas y headers
             columns = (
@@ -2185,14 +2513,15 @@ class App:
                 width, stretch = column_widths.get(column, (100, False))
                 self.tree.column(column, width=width, stretch=stretch, anchor=tk.CENTER)
                 
-            # Insertar datos
-            for student in students:
-                self.tree.insert("", "end", values=student)
+            # Insertar datos con colores alternados
+            for i, student in enumerate(students):
+                tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+                self.tree.insert("", "end", values=student, tags=(tag,))
 
         except Exception as e:
             print(f"Error al mostrar alumnos: {e}")
             import traceback
-            traceback.print_exc()
+            traceback.print_exc()  
 
     def add_student_window(self):
             window = tk.Toplevel(self.root)
@@ -2578,128 +2907,6 @@ class App:
             command=delete_window.destroy
         ).pack(side=tk.LEFT, padx=5)
 
-    def show_courses_by_student(self):
-        search_window = tk.Toplevel(self.root)
-        search_window.title("Cursos por Alumno")
-        search_window.configure(bg="#f0f5ff")
-        search_window.grab_set()
-        search_window.focus_force()
-
-        # Configuración de la ventana
-        width, height = 400, 200
-        sw = search_window.winfo_screenwidth()
-        sh = search_window.winfo_screenheight()
-        x = (sw // 2) - (width // 2)
-        y = (sh // 2) - (height // 2)
-        search_window.geometry(f"{width}x{height}+{x}+{y}")
-
-        try:
-            search_window.iconbitmap('assets/logo1.ico')
-        except Exception as e:
-            print(f"Error al cargar el ícono: {e}")
-
-        # Frame principal
-        main_frame = tk.Frame(search_window, bg="#f0f5ff", padx=20, pady=20)
-        main_frame.pack(fill='both', expand=True)
-
-        # Título
-        title_label = tk.Label(
-            main_frame,
-            text="Buscar Cursos por Alumno",
-            font=("Helvetica", 16, "bold"),
-            bg="#f0f5ff",
-            fg="#022e86"
-        )
-        title_label.pack(pady=(0, 20))
-
-        # Frame para el campo de entrada
-        input_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        input_frame.pack(fill='x', pady=10)
-
-        # Label
-        rut_label = tk.Label(
-            input_frame,
-            text="RUT Alumno:",
-            bg="#f0f5ff",
-            fg="#022e86",
-            font=("Helvetica", 10),
-            width=15,
-            anchor='w'
-        )
-        rut_label.pack(side=tk.LEFT, padx=(0, 10))
-
-        # Entry
-        rut_entry = tk.Entry(
-            input_frame,
-            font=("Helvetica", 10),
-            relief="solid",
-            bd=1,
-            width=20
-        )
-        rut_entry.pack(side=tk.LEFT, fill='x', expand=True)
-
-        def search():
-            rut = rut_entry.get().strip()
-            if not rut:
-                messagebox.showwarning(
-                    "Error",
-                    "Debe ingresar un RUT.",
-                    parent=search_window
-                )
-                return
-
-            courses = fetch_courses_by_student_rut(rut)
-            if courses:
-                self._populate_tree(
-                    ("nombre_curso", "fecha_inscripcion"),
-                    ("Curso", "Fecha Inscripción"),
-                    courses
-                )
-                self._update_title_label(f"Cursos del Alumno: {rut}")
-                messagebox.showinfo(
-                    "Éxito",
-                    f"Se encontraron {len(courses)} cursos para el RUT {rut}.",
-                    parent=search_window
-                )
-                search_window.destroy()
-            else:
-                messagebox.showinfo(
-                    "Información",
-                    "No se encontraron cursos para el RUT indicado.",
-                    parent=search_window
-                )
-
-        # Frame para botones
-        button_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        button_frame.pack(pady=20)
-
-        # Botón Buscar
-        tk.Button(
-            button_frame,
-            text="Buscar",
-            bg="#022e86",
-            fg="white",
-            font=("Helvetica", 10, "bold"),
-            relief="flat",
-            padx=20,
-            pady=8,
-            cursor="hand2",
-            command=search
-        ).pack(side=tk.LEFT, padx=5)
-
-        # Botón Cancelar
-        tk.Button(
-            button_frame,
-            text="Cancelar",
-            bg="#666666",
-            fg="white",
-            font=("Helvetica", 10),
-            relief="flat",
-            padx=20,
-            pady=8,
-            cursor="hand2",
-            command=search_window.destroy
-        ).pack(side=tk.LEFT, padx=5)
     
     #@requiere_rol_gui("admin")
     def edit_student_window(self):
@@ -2885,6 +3092,20 @@ class App:
     # ---------------------------------------------------
     #                  PAGOS
     # ---------------------------------------------------
+    def _get_estado_pago_tag(self, estado):
+        """
+        Determina el tag del Treeview para colorear según el estado del pago.
+        """
+        estado = estado.upper()
+        if estado == 'PENDIENTE':
+            return 'pendiente'
+        elif estado == 'PAGADO':
+            return 'pagado'
+        elif estado == 'CANCELADO':
+            return 'cancelado'
+        else:
+            return 'sin_procesar'
+
     def show_payments(self):
         try:
             # Limpiar solo el contenido principal
@@ -2896,39 +3117,131 @@ class App:
             # Crear frame para el contenido principal
             content_frame = ttk.Frame(self.main_frame)
             content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+            # Frame para botones
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=(0, 5))
             
-            # Crear frame para el treeview
+            # Botones de acción
+            ttk.Button(
+                button_frame,
+                text="Nuevo Pago",
+                command=self.add_payment_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=5)
+
+            ttk.Button(
+                button_frame,
+                text="Pagos Pendientes",
+                command=self.show_pending_payments,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=5)
+
+            ttk.Button(
+                button_frame,
+                text="Buscar por Inscripción",
+                command=self.show_payments_by_inscription,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=5)
+
+            ttk.Button(
+                button_frame,
+                text="Cambiar Estado",
+                command=self.update_payment_status_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=5)
+
+            ttk.Button(
+                button_frame,
+                text="Gestionar Cuotas",
+                command=self.manage_cuotas_pagare_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=5)
+            
+            # Frame para el treeview y scrollbars
             tree_frame = ttk.Frame(content_frame)
             tree_frame.pack(fill=tk.BOTH, expand=True)
-            
-            # Crear y configurar scrollbar
-            scrollbar = ttk.Scrollbar(tree_frame)
-            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            
-            # Crear el treeview
-            self.tree = ttk.Treeview(tree_frame, yscrollcommand=scrollbar.set)
-            self.tree.pack(fill=tk.BOTH, expand=True)
-            
-            # Configurar scrollbar
-            scrollbar.config(command=self.tree.yview)
-                        
+            tree_frame.grid_rowconfigure(0, weight=1)
+            tree_frame.grid_columnconfigure(0, weight=1)
+
+            # Configurar estilo del Treeview
+            style = ttk.Style()
+            style.configure("Treeview",
+                background="#ffffff",
+                foreground="black",
+                rowheight=25,
+                fieldbackground="#ffffff"
+            )
+            style.configure("Treeview.Heading",
+                background="#e1e1e1",
+                foreground="black",
+                relief="flat"
+            )
+            style.map('Treeview',
+                background=[('selected', '#0078D7')],
+                foreground=[('selected', 'white')]
+            )
+
+            # Scrollbars
+            vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+            hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+            # Crear Treeview
+            self.tree = ttk.Treeview(
+                tree_frame,
+                selectmode="extended",
+                yscrollcommand=vscroll.set,
+                xscrollcommand=hscroll.set
+            )
+
+            # Configurar grid
+            self.tree.grid(row=0, column=0, sticky="nsew")
+            vscroll.grid(row=0, column=1, sticky="ns")
+            hscroll.grid(row=1, column=0, sticky="ew")
+
+            # Configurar scrollbars
+            vscroll.configure(command=self.tree.yview)
+            hscroll.configure(command=self.tree.xview)
+
+            # Configurar menú contextual
+            self.context_menu = tk.Menu(tree_frame, tearoff=0)
+            self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
+            self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+
+            # Variables para tracking
+            self.last_click_x = 0
+            self.last_click_y = 0
+
+            # Bindings para el menú contextual
+            self.tree.bind("<Button-3>", self._show_context_menu)
+            self.tree.bind("<Button-1>", self._save_click_position)
+            self.tree.bind("<ButtonRelease-3>", self._save_click_position)
+
+            # Configurar tags para estados
+            self.tree.tag_configure('pendiente', background='#FFF3CD')  # Amarillo claro
+            self.tree.tag_configure('pagado', background='#D4EDDA')    # Verde claro
+            self.tree.tag_configure('cancelado', background='#F8D7DA') # Rojo claro
+            self.tree.tag_configure('sin_procesar', background='#E2E3E5') # Gris claro
+            self.tree.tag_configure('oddrow', background='#f5f5f5')
+            self.tree.tag_configure('evenrow', background='#ffffff')
+                                
             # Definir las columnas y headers
             columns = (
                 "ID", "Inscripcion", "Alumno", "Curso", "N_Acta",
                 "Tipo_Pago", "Modalidad_Pago", "Cuotas", "Valor_Total",
                 "Estado", "F_Inscripcion", "F_Final"
             )
-                
+                    
             headers = (
                 "ID", "Inscripción", "Alumno", "Curso", "N° Acta",
                 "Tipo", "Modalidad", "Cuotas", "Valor Total",
                 "Estado", "F. Inscripción", "F. Final"
             )
 
-            # Obtener datos
+            # Obtener datos y formatear
             data_raw = fetch_payments()
             formatted_data = []
-                
+                    
             if data_raw:
                 for payment in data_raw:
                     fecha_inscripcion = payment[4].strftime('%Y-%m-%d') if payment[4] else ''
@@ -2950,11 +3263,11 @@ class App:
                         fecha_final
                     ]
                     formatted_data.append(row)
-                
+            
             # Configurar el tree
             self.tree.config(columns=columns, show="headings")
                 
-            # Configurar columnas con anchos optimizados
+            # Configurar columnas con anchos
             column_widths = {
                 "ID": 60,
                 "Inscripcion": 80,
@@ -2976,30 +3289,20 @@ class App:
                 width = column_widths.get(column, 100)
                 self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
                 
-            # Insertar datos y aplicar colores según el estado
-            for item in formatted_data:
-                estado = item[9]  # Estado es la columna 9
-                tag = self._get_estado_pago_tag(estado)
-                self.tree.insert("", "end", values=item, tags=(tag,))
-                
-            # Configurar colores para los diferentes estados
-            self.tree.tag_configure('PENDIENTE', background='#FFF3CD')  # Amarillo claro
-            self.tree.tag_configure('PAGADO', background='#D4EDDA')     # Verde claro
-            self.tree.tag_configure('CANCELADO', background='#F8D7DA')  # Rojo claro
+            # Insertar datos con colores de estado
+            for i, item in enumerate(formatted_data):
+                estado = item[9].upper()  # Estado es la columna 9
+                estado_tag = self._get_estado_pago_tag(estado)
+                row_tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+                self.tree.insert("", "end", values=item, tags=(estado_tag, row_tag))
+
+            # Forzar actualización del Treeview
+            self.tree.update_idletasks()
 
         except Exception as e:
             print(f"Error al mostrar pagos: {e}")
             import traceback
             traceback.print_exc()
-
-    def _get_estado_pago_tag(self, estado):
-        """
-        Determina el tag de color según el estado del pago
-        """
-        estado = estado.upper()
-        if estado in ['PENDIENTE', 'PAGADO', 'CANCELADO']:
-            return estado
-        return 'PENDIENTE'  # Estado por defecto
 
     def show_pending_payments(self):
         try:
@@ -3013,28 +3316,38 @@ class App:
             # Obtener datos y resumen
             data_raw, summary = fetch_pending_payments()
             
-            # Frame de resumen con el estilo consistente
-            summary_frame = ttk.Frame(self.main_frame)
-            summary_frame.pack(fill=tk.X, padx=10, pady=5)
+            # Verificar si ya existe el frame de resumen
+            summary_exists = False
+            for widget in self.main_frame.winfo_children():
+                if isinstance(widget, ttk.Frame) and hasattr(widget, 'is_summary_frame'):
+                    summary_exists = True
+                    break
             
-            # Box de resumen con estilo consistente
-            summary_box = ttk.LabelFrame(summary_frame, text="Resumen de Pagos Pendientes")
-            summary_box.pack(fill=tk.X, padx=5, pady=5)
-            
-            # Labels de resumen con estilo consistente de la aplicación
-            total_label = ttk.Label(
-                summary_box, 
-                text=f"Total Pagos Pendientes: {summary['total']}",
-                style="TLabel"
-            )
-            total_label.pack(side=tk.LEFT, padx=20)
-            
-            pagare_label = ttk.Label(
-                summary_box,
-                text=f"Pagarés Pendientes: {summary['pagare_pendiente']}",
-                style="TLabel"
-            )
-            pagare_label.pack(side=tk.LEFT, padx=20)
+            # Crear el frame de resumen solo si no existe
+            if not summary_exists:
+                # Frame de resumen con el estilo consistente
+                summary_frame = ttk.Frame(self.main_frame)
+                summary_frame.is_summary_frame = True  # Marcamos el frame para identificarlo
+                summary_frame.pack(fill=tk.X, padx=10, pady=5)
+                
+                # Box de resumen con estilo consistente
+                summary_box = ttk.LabelFrame(summary_frame, text="Resumen de Pagos Pendientes")
+                summary_box.pack(fill=tk.X, padx=5, pady=5)
+                
+                # Labels de resumen con estilo consistente de la aplicación
+                total_label = ttk.Label(
+                    summary_box, 
+                    text=f"Total Pagos Pendientes: {summary['total']}",
+                    style="TLabel"
+                )
+                total_label.pack(side=tk.LEFT, padx=20)
+                
+                pagare_label = ttk.Label(
+                    summary_box,
+                    text=f"Pagarés Pendientes: {summary['pagare_pendiente']}",
+                    style="TLabel"
+                )
+                pagare_label.pack(side=tk.LEFT, padx=20)
             
             # Definir columnas y headers
             columns = (
@@ -3134,13 +3447,20 @@ class App:
         # Definir el estilo para los botones
         style = ttk.Style(window)
         style.theme_use('clam')  
-        style.configure('Custom.TButton',
-                        background='#022e86',
-                        foreground='white',
-                        font=('Helvetica', 10, 'bold'))
-        style.map('Custom.TButton',
-                background=[('active', '#021f5e')],
-                foreground=[('active', 'white')])
+        style.configure('Action.TButton',
+                       font=('Helvetica', 10, 'bold'),
+                       padding=(10, 5),
+                       background='#00239c',
+                       foreground='white',
+                       relief='raised',  # Cambiado a raised para dar el efecto 3D
+                       borderwidth=1)    # Añadido borde
+        
+        style.map('Action.TButton',
+                 background=[('active', '#001970'),
+                           ('pressed', '#00239c')],
+                 foreground=[('active', 'white'),
+                           ('pressed', 'white')],
+                 relief=[('pressed', 'sunken')])  # Efecto presionado
 
         main_frame = ttk.Frame(window, padding="20")
         main_frame.pack(fill='both', expand=True)
@@ -3427,6 +3747,7 @@ class App:
 
             generate_pagare_docx(template_path, file_path, contexto)
             messagebox.showinfo("Éxito", f"Documento pagare generado:\n{file_path}", parent=window)
+            
 
         # Botón para guardar
         save_button = ttk.Button(
@@ -3751,7 +4072,7 @@ class App:
             # Actualizar estado
             if update_payment_status(payment_id, nuevo_estado):
                 messagebox.showinfo("Éxito", "Estado actualizado correctamente")
-                search_payments()  # Actualizar la tabla
+                self.show_payments()  # Actualizar la tabla
             else:
                 messagebox.showerror("Error", "No se pudo actualizar el estado")
 
@@ -4079,27 +4400,483 @@ class App:
     #                  FACTURAS
     # ---------------------------------------------------
     def show_invoices(self):
-        invoices = fetch_invoices()
-        columns = ("id_factura", "id_inscripcion", "numero_factura", "monto_total", "estado")
-        headers = ("ID", "Inscripción", "N° Factura", "Monto Total", "Estado")
-        self._update_title_label("Listado de Facturas")
-        self._populate_tree(columns, headers, invoices)
+        """Muestra la lista de facturas en el TreeView."""
+        try:
+            # Limpiar solo el contenido principal
+            self._clear_main_content()
+            
+            # Actualizar el título
+            self._update_title_label("Listado de Facturas")
+            
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Frame para botones
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=(0, 5))
+            
+            # Botones de acción
+            ttk.Button(
+                button_frame,
+                text="Nueva Factura",
+                command=self.add_invoice_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=5)
+
+            ttk.Button(
+                button_frame,
+                text="Cambiar Estado",
+                command=self.change_invoice_status,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=5)
+            
+            # Frame para el treeview y scrollbars
+            tree_frame = ttk.Frame(content_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True)
+            tree_frame.grid_rowconfigure(0, weight=1)
+            tree_frame.grid_columnconfigure(0, weight=1)
+
+            # Scrollbars
+            vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+            hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+            # Crear Treeview
+            self.tree = ttk.Treeview(
+                tree_frame,
+                selectmode="extended",
+                yscrollcommand=vscroll.set,
+                xscrollcommand=hscroll.set
+            )
+
+            # Configurar grid
+            self.tree.grid(row=0, column=0, sticky="nsew")
+            vscroll.grid(row=0, column=1, sticky="ns")
+            hscroll.grid(row=1, column=0, sticky="ew")
+
+            # Configurar scrollbars
+            vscroll.configure(command=self.tree.yview)
+            hscroll.configure(command=self.tree.xview)
+
+            # Configurar menú contextual
+            self.context_menu = tk.Menu(tree_frame, tearoff=0)
+            self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
+            self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+
+            # Variables para tracking
+            self.last_click_x = 0
+            self.last_click_y = 0
+
+            # Bindings para el menú contextual
+            self.tree.bind("<Button-3>", self._show_context_menu)
+            self.tree.bind("<Button-1>", self._save_click_position)
+            self.tree.bind("<ButtonRelease-3>", self._save_click_position)
+
+            # Configurar tags base
+            self.tree.tag_configure('oddrow', background='#f5f5f5')
+            self.tree.tag_configure('evenrow', background='#ffffff')
+                
+            # Definir las columnas y headers
+            columns = (
+                "id_factura",
+                "id_curso",
+                "nombre_completo",
+                "rut",
+                "numero_factura",
+                "monto_total",
+                "estado",
+                "fecha_emision"
+            )
+            
+            headers = (
+                "ID",
+                "ID Curso",
+                "Nombre Completo",
+                "RUT",
+                "N° Factura",
+                "Monto Total",
+                "Estado",
+                "Fecha Emisión"
+            )
+
+            # Obtener y formatear datos
+            data_raw = fetch_invoices()
+            formatted_data = []
+            
+            for invoice in data_raw:
+                fecha_emision = invoice[7].strftime('%Y-%m-%d') if invoice[7] else ''
+                monto_total = f"${invoice[5]:,.0f}" if invoice[5] else ''
+                
+                row = [
+                    invoice[0],             # ID
+                    invoice[1],             # ID Curso
+                    invoice[2],             # Nombre Completo
+                    invoice[3],             # RUT
+                    invoice[4],             # N° Factura
+                    monto_total,            # Monto Total
+                    invoice[6].upper(),     # Estado
+                    fecha_emision           # Fecha Emisión
+                ]
+                formatted_data.append(row)
+            
+            # Configurar el tree
+            self.tree.config(columns=columns, show="headings")
+            
+            # Configurar columnas
+            column_widths = {
+                "id_factura": 80,
+                "id_curso": 100,
+                "nombre_completo": 250,
+                "rut": 120,
+                "numero_factura": 120,
+                "monto_total": 120,
+                "estado": 100,
+                "fecha_emision": 150
+            }
+
+            # Aplicar configuración de columnas
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                width = column_widths.get(column, 100)
+                self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
+            
+            # Configurar tags de estado
+            self.tree.tag_configure('PENDIENTE', background='#FFF3CD')  # Amarillo claro
+            self.tree.tag_configure('FACTURADA', background='#D4EDDA')  # Verde claro
+            
+            # Insertar datos con colores alternados y estados
+            for i, item in enumerate(formatted_data):
+                estado = item[6]  # Estado es la columna 6
+                estado_tag = self._get_estado_factura_tag(estado)
+                tags = (estado_tag,)  # Priorizar el color del estado
+                self.tree.insert("", "end", values=item, tags=tags)
+
+        except Exception as e:
+            print(f"Error al mostrar facturas: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _get_estado_factura_tag(self, estado):
+        """
+        Determina el tag de color según el estado de la factura
+        """
+        estado = estado.upper()
+        if estado in ['PENDIENTE', 'FACTURADA']:
+            return estado
+        return 'PENDIENTE'  # Estado por defecto
 
     def add_invoice_window(self):
-        self._generic_add_window(
-            "Añadir Factura",
-            insert_invoice,
-            [
-                ("ID Inscripción:", int),
-                ("N° Factura:", None),
-                ("Monto Total:", float),
-                ("Estado:", None)
-            ]
-        )
+        """Ventana para agregar una nueva factura."""
+        window = tk.Toplevel(self.root)
+        window.title("Nueva Factura")
+        window.geometry("900x550")
+        window.configure(bg="#f0f5ff")
+        window.grab_set()
+        window.focus_force()
 
+        # Intentar cargar ícono
+        try:
+            window.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar ícono de la ventana: {e}")
+
+        # Centrar ventana
+        sw = window.winfo_screenwidth()
+        sh = window.winfo_screenheight()
+        x = (sw // 2) - (900 // 2)
+        y = (sh // 2) - (550 // 2)
+        window.geometry(f"900x550+{x}+{y}")
+
+        # Configurar estilos
+        style = ttk.Style(window)
+        style.theme_use('clam')
+        style.configure('Custom.TButton',
+                        background='#022e86',
+                        foreground='white',
+                        font=('Helvetica', 10, 'bold'))
+        style.map('Custom.TButton',
+                background=[('active', '#021f5e')],
+                foreground=[('active', 'white')])
+
+        # Frame principal
+        main_frame = ttk.Frame(window, padding="20")
+        main_frame.pack(fill='both', expand=True)
+
+        # Título
+        title_label = ttk.Label(
+            main_frame,
+            text="Registro de Factura",
+            font=("Helvetica", 16, "bold"),
+            foreground="#022e86"
+        )
+        title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
+
+        # Frame de información
+        info_frame = ttk.LabelFrame(main_frame, text="Información de Factura", padding="10")
+        info_frame.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, 10))
+
+        # Variables
+        id_inscripcion_var = tk.StringVar()
+        numero_factura_var = tk.StringVar()
+        monto_total_var = tk.StringVar()
+
+        # Campos del formulario
+        ttk.Label(info_frame, text="ID Inscripción:").grid(row=0, column=0, padx=5, pady=5)
+        ttk.Entry(info_frame, textvariable=id_inscripcion_var, width=15).grid(row=0, column=1, padx=5, pady=5)
+
+        ttk.Label(info_frame, text="N° Factura:").grid(row=0, column=2, padx=5, pady=5)
+        ttk.Entry(info_frame, textvariable=numero_factura_var, width=20).grid(row=0, column=3, padx=5, pady=5)
+
+        ttk.Label(info_frame, text="Monto Total:").grid(row=1, column=0, padx=5, pady=5)
+        ttk.Entry(info_frame, textvariable=monto_total_var, width=15).grid(row=1, column=1, padx=5, pady=5)
+
+        def save_invoice():
+            try:
+                # Validar campos
+                id_inscripcion = int(id_inscripcion_var.get())
+                numero_factura = numero_factura_var.get().strip()
+                monto_total = float(monto_total_var.get().replace(',', ''))
+
+                if not numero_factura:
+                    messagebox.showerror("Error", "El número de factura es requerido", parent=window)
+                    return
+
+                # Insertar factura
+                if insert_invoice(id_inscripcion, numero_factura, monto_total):
+                    messagebox.showinfo("Éxito", "Factura agregada correctamente", parent=window)
+                    window.destroy()
+                    self.show_invoices()
+                else:
+                    messagebox.showerror("Error", "No se pudo agregar la factura", parent=window)
+            except ValueError:
+                messagebox.showerror("Error", "Por favor verifique los datos ingresados", parent=window)
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al guardar: {str(e)}", parent=window)
+
+        # Frame de botones
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=2, column=0, columnspan=4, pady=20)
+
+        ttk.Button(
+            button_frame,
+            text="Guardar",
+            command=save_invoice,
+            style='Custom.TButton'
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="Cancelar",
+            command=window.destroy,
+            style='Custom.TButton'
+        ).pack(side=tk.LEFT, padx=5)
+
+    def change_invoice_status(self):
+        """Ventana para cambiar el estado de una factura."""
+        # Obtener el item seleccionado
+        selected_item = self.tree.selection()
+        if not selected_item:
+            messagebox.showwarning("Advertencia", "Por favor seleccione una factura")
+            return
+
+        # Obtener datos del item seleccionado
+        item_data = self.tree.item(selected_item[0])
+        id_factura = item_data['values'][0]
+        current_status = item_data['values'][6]
+
+        # Crear ventana
+        window = tk.Toplevel(self.root)
+        window.title("Cambiar Estado de Factura")
+        window.geometry("300x150")
+        
+        # Centrar la ventana
+        window.update_idletasks()
+        width = window.winfo_width()
+        height = window.winfo_height()
+        x = (window.winfo_screenwidth() // 2) - (width // 2)
+        y = (window.winfo_screenheight() // 2) - (height // 2)
+        window.geometry(f'{width}x{height}+{x}+{y}')
+
+        # Frame principal
+        main_frame = ttk.Frame(window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Variable para el nuevo estado
+        nuevo_estado = tk.StringVar(value=current_status)
+
+        # Campos del formulario
+        ttk.Label(main_frame, text="Nuevo Estado:").grid(row=0, column=0, sticky="w", pady=5)
+        estado_combo = ttk.Combobox(
+            main_frame,
+            textvariable=nuevo_estado,
+            values=["pendiente", "facturada"],
+            state="readonly"
+        )
+        estado_combo.grid(row=0, column=1, sticky="ew", pady=5)
+
+        def save_status():
+            try:
+                if update_invoice_status(id_factura, nuevo_estado.get()):
+                    messagebox.showinfo("Éxito", "Estado actualizado correctamente")
+                    window.destroy()
+                    self.show_invoices()  # Actualizar lista
+                else:
+                    messagebox.showerror("Error", "No se pudo actualizar el estado")
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al guardar: {str(e)}")
+
+        # Botones
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=1, column=0, columnspan=2, pady=20)
+
+        ttk.Button(
+            button_frame,
+            text="Guardar",
+            command=save_status
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="Cancelar",
+            command=window.destroy
+        ).pack(side=tk.LEFT, padx=5)
    #=======================================================
    #                EMPRESAS Y CONTACTOS
    #=======================================================
+    def show_empresas(self):
+        try:
+            # Limpiar solo el contenido principal
+            self._clear_main_content()
+            
+            # Actualizar el título
+            self._update_title_label("Listado de Empresas")
+            
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+            # Frame para botones
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=(0, 5))
+            
+            # Botones de acción
+            ttk.Button(
+                button_frame,
+                text="Gestionar Empresa",
+                command=self.manage_empresa_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Gestionar Contactos",
+                command=self.manage_contacts_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+            
+            # Frame para el treeview y scrollbars
+            tree_frame = ttk.Frame(content_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True)
+            tree_frame.grid_rowconfigure(0, weight=1)
+            tree_frame.grid_columnconfigure(0, weight=1)
+
+            # Scrollbars
+            vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+            hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+            # Crear Treeview
+            self.tree = ttk.Treeview(
+                tree_frame,
+                selectmode="extended",
+                yscrollcommand=vscroll.set,
+                xscrollcommand=hscroll.set
+            )
+
+            # Configurar grid
+            self.tree.grid(row=0, column=0, sticky="nsew")
+            vscroll.grid(row=0, column=1, sticky="ns")
+            hscroll.grid(row=1, column=0, sticky="ew")
+
+            # Configurar scrollbars
+            vscroll.configure(command=self.tree.yview)
+            hscroll.configure(command=self.tree.xview)
+
+            # Configurar menú contextual
+            self.context_menu = tk.Menu(tree_frame, tearoff=0)
+            self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
+            self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+
+            # Variables para tracking
+            self.last_click_x = 0
+            self.last_click_y = 0
+
+            # Bindings para el menú contextual
+            self.tree.bind("<Button-3>", self._show_context_menu)
+            self.tree.bind("<Button-1>", self._save_click_position)
+            self.tree.bind("<ButtonRelease-3>", self._save_click_position)
+
+            # Configurar tags
+            self.tree.tag_configure('oddrow', background='#f5f5f5')
+            self.tree.tag_configure('evenrow', background='#ffffff')
+            
+            # Definir columnas y headers
+            columns = (
+                "id_empresa", 
+                "rut_empresa", 
+                "direccion_empresa", 
+                "nombre_contacto", 
+                "correo_contacto", 
+                "telefono_contacto", 
+                "rol_contacto"
+            )
+            
+            headers = (
+                "Nombre Empresa", 
+                "RUT", 
+                "Dirección", 
+                "Contacto", 
+                "Email", 
+                "Teléfono", 
+                "Rol"
+            )
+
+            # Obtener datos
+            empresas = fetch_all_empresas()
+            
+            # Configurar el tree
+            self.tree.config(columns=columns, show="headings")
+            
+            # Configurar columnas con sus anchos optimizados
+            column_widths = {
+                "id_empresa": (150, True),
+                "rut_empresa": (100, False),
+                "direccion_empresa": (200, True),
+                "nombre_contacto": (150, True),
+                "correo_contacto": (200, True),
+                "telefono_contacto": (120, False),
+                "rol_contacto": (120, False)
+            }
+
+            # Aplicar configuración de columnas
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                width, stretch = column_widths.get(column, (100, False))
+                self.tree.column(column, width=width, stretch=stretch, anchor=tk.CENTER)
+                
+            # Insertar datos con colores alternados
+            if empresas:
+                for i, empresa in enumerate(empresas):
+                    formatted_row = format_empresa_data(empresa)
+                    tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+                    self.tree.insert("", tk.END, values=formatted_row, tags=(tag,))
+            else:
+                print("No se encontraron empresas registradas")
+
+        except Exception as e:
+            print(f"Error al mostrar empresas: {e}")
+            import traceback
+            traceback.print_exc()
+
     def manage_empresa_window(self):
         """
         Ventana unificada para gestionar empresas (añadir/editar)
@@ -4288,97 +5065,6 @@ class App:
 
         # Inicializar modo
         toggle_mode("nuevo")
-
-    def show_empresas(self):
-        try:
-            # Limpiar solo el contenido principal
-            self._clear_main_content()
-            
-            # Actualizar el título
-            self._update_title_label("Listado de Empresas")
-            
-            # Crear frame para el contenido principal
-            content_frame = ttk.Frame(self.main_frame)
-            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-            
-            # Crear frame para el treeview y scrollbars
-            tree_frame = ttk.Frame(content_frame)
-            tree_frame.pack(fill=tk.BOTH, expand=True)
-            
-            # Crear y configurar scrollbar vertical
-            v_scrollbar = ttk.Scrollbar(tree_frame)
-            v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            
-            # Crear y configurar scrollbar horizontal
-            h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
-            h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-            
-            # Crear el treeview
-            self.tree = ttk.Treeview(tree_frame, 
-                                    yscrollcommand=v_scrollbar.set,
-                                    xscrollcommand=h_scrollbar.set)
-            self.tree.pack(fill=tk.BOTH, expand=True)
-            
-            # Configurar scrollbars
-            v_scrollbar.config(command=self.tree.yview)
-            h_scrollbar.config(command=self.tree.xview)
-            
-            # Definir columnas y headers
-            columns = (
-                "id_empresa", 
-                "rut_empresa", 
-                "direccion_empresa", 
-                "nombre_contacto", 
-                "correo_contacto", 
-                "telefono_contacto", 
-                "rol_contacto"
-            )
-            
-            headers = (
-                "Nombre Empresa", 
-                "RUT", 
-                "Dirección", 
-                "Contacto", 
-                "Email", 
-                "Teléfono", 
-                "Rol"
-            )
-
-            # Obtener datos
-            empresas = fetch_all_empresas()
-            
-            # Configurar el tree
-            self.tree.config(columns=columns, show="headings")
-            
-            # Configurar columnas con sus anchos optimizados
-            column_widths = {
-                "id_empresa": (150, True),
-                "rut_empresa": (100, False),
-                "direccion_empresa": (200, True),
-                "nombre_contacto": (150, True),
-                "correo_contacto": (200, True),
-                "telefono_contacto": (120, False),
-                "rol_contacto": (120, False)
-            }
-
-            # Aplicar configuración de columnas
-            for column, header in zip(columns, headers):
-                self.tree.heading(column, text=header, anchor=tk.CENTER)
-                width, stretch = column_widths.get(column, (100, False))
-                self.tree.column(column, width=width, stretch=stretch, anchor=tk.CENTER)
-                
-            # Insertar datos
-            if empresas:
-                for empresa in empresas:
-                    formatted_row = format_empresa_data(empresa)
-                    self.tree.insert("", tk.END, values=formatted_row)
-            else:
-                print("No se encontraron empresas registradas")
-
-        except Exception as e:
-            print(f"Error al mostrar empresas: {e}")
-            import traceback
-            traceback.print_exc()
 
     def manage_contacts_window(self):
         """
@@ -4635,28 +5321,63 @@ class App:
             # Crear frame para el contenido principal
             content_frame = ttk.Frame(self.main_frame)
             content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+            # Frame para botones
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=(0, 5))
             
-            # Crear frame para el treeview y scrollbars
+            # Botón de acción
+            ttk.Button(
+                button_frame,
+                text="Generar Cotización",
+                command=self.show_cotizacion_window,
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+            
+            # Frame para el treeview y scrollbars
             tree_frame = ttk.Frame(content_frame)
             tree_frame.pack(fill=tk.BOTH, expand=True)
-            
-            # Crear y configurar scrollbar vertical
-            v_scrollbar = ttk.Scrollbar(tree_frame)
-            v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            
-            # Crear y configurar scrollbar horizontal
-            h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
-            h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-            
-            # Crear el treeview
-            self.tree = ttk.Treeview(tree_frame, 
-                                    yscrollcommand=v_scrollbar.set,
-                                    xscrollcommand=h_scrollbar.set)
-            self.tree.pack(fill=tk.BOTH, expand=True)
-            
+            tree_frame.grid_rowconfigure(0, weight=1)
+            tree_frame.grid_columnconfigure(0, weight=1)
+
+            # Scrollbars
+            vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+            hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+            # Crear Treeview
+            self.tree = ttk.Treeview(
+                tree_frame,
+                selectmode="extended",
+                yscrollcommand=vscroll.set,
+                xscrollcommand=hscroll.set
+            )
+
+            # Configurar grid
+            self.tree.grid(row=0, column=0, sticky="nsew")
+            vscroll.grid(row=0, column=1, sticky="ns")
+            hscroll.grid(row=1, column=0, sticky="ew")
+
             # Configurar scrollbars
-            v_scrollbar.config(command=self.tree.yview)
-            h_scrollbar.config(command=self.tree.xview)
+            vscroll.configure(command=self.tree.yview)
+            hscroll.configure(command=self.tree.xview)
+
+            # Configurar menú contextual
+            self.context_menu = tk.Menu(tree_frame, tearoff=0)
+            self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
+            self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+
+            # Variables para tracking
+            self.last_click_x = 0
+            self.last_click_y = 0
+
+            # Bindings para el menú contextual
+            self.tree.bind("<Button-3>", self._show_context_menu)
+            self.tree.bind("<Button-1>", self._save_click_position)
+            self.tree.bind("<ButtonRelease-3>", self._save_click_position)
+
+            # Configurar tags
+            self.tree.tag_configure('oddrow', background='#f5f5f5')
+            self.tree.tag_configure('evenrow', background='#ffffff')
             
             # Definir columnas y headers
             columns = (
@@ -4705,15 +5426,16 @@ class App:
                 width, stretch = column_widths.get(column, (100, False))
                 self.tree.column(column, width=width, stretch=stretch, anchor=tk.CENTER)
                 
-            # Insertar datos
-            for cotizacion in cotizaciones:
-                self.tree.insert("", "end", values=cotizacion)
+            # Insertar datos con colores alternados
+            for i, cotizacion in enumerate(cotizaciones):
+                tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+                self.tree.insert("", "end", values=cotizacion, tags=(tag,))
 
         except Exception as e:
-            print(f"Error al mostrar cotizaciones: {e}")
+            print(f"Error al mostrar Cotizaciones: {e}")
             import traceback
             traceback.print_exc()
-  
+    
     def show_cotizacion_window(self):
         window = tk.Toplevel(self.root)
         window.title("Nueva Cotización")
@@ -4787,9 +5509,213 @@ class App:
     #================================================================
     #                   TRAMITACIONES 
     #================================================================
-
-
     def show_tramitaciones(self):
+            try:
+                # Limpiar contenido principal
+                self._clear_main_content()
+                
+                # Actualizar título
+                self._update_title_label("Gestión de Tramitaciones")
+                
+                # Frame principal
+                content_frame = ttk.Frame(self.main_frame)
+                content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+                # Frame superior para búsqueda y filtros
+                search_frame = ttk.Frame(content_frame)
+                search_frame.pack(fill=tk.X, pady=(0, 5))
+
+                # Campo de búsqueda por RUT
+                ttk.Label(search_frame, text="RUT Alumno:").pack(side=tk.LEFT, padx=5)
+                self.rut_search = ttk.Entry(search_frame)
+                self.rut_search.pack(side=tk.LEFT, padx=5)
+                
+                # Botones de filtrado
+                ttk.Button(
+                    search_frame,
+                    text="Buscar por RUT",
+                    command=lambda: self._filter_tramitaciones_by_rut(),
+                    style='Action.TButton'
+                ).pack(side=tk.LEFT, padx=2)
+
+                ttk.Button(
+                    search_frame,
+                    text="Ver Activas",
+                    command=lambda: self._show_active_tramitaciones(),
+                    style='Action.TButton'
+                ).pack(side=tk.LEFT, padx=2)
+
+                ttk.Button(
+                    search_frame,
+                    text="Ver Todas",
+                    command=lambda: self._refresh_tramitaciones(),
+                    style='Action.TButton'
+                ).pack(side=tk.LEFT, padx=2)
+
+                # Frame para el treeview principal
+                tree_frame = ttk.Frame(content_frame)
+                tree_frame.pack(fill=tk.BOTH, expand=True)
+
+                # Scrollbars
+                vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+                hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+                # Treeview principal
+                self.tramitaciones_tree = ttk.Treeview(
+                    tree_frame,
+                    selectmode="extended",
+                    yscrollcommand=vscroll.set,
+                    xscrollcommand=hscroll.set
+                )
+
+                # Configurar grid
+                self.tramitaciones_tree.grid(row=0, column=0, sticky="nsew")
+                vscroll.grid(row=0, column=1, sticky="ns")
+                hscroll.grid(row=1, column=0, sticky="ew")
+                tree_frame.grid_rowconfigure(0, weight=1)
+                tree_frame.grid_columnconfigure(0, weight=1)
+
+                # Configurar scrollbars
+                vscroll.config(command=self.tramitaciones_tree.yview)
+                hscroll.config(command=self.tramitaciones_tree.xview)
+
+                # Configurar columnas según las nuevas queries
+                columns = (
+                    "id_inscripcion",
+                    "rut",
+                    "nombre_completo",
+                    "estado_general",
+                    "fecha_ultimo_cambio",
+                    "observacion",
+                    "total_documentos",
+                    "id_tramitacion"  # Columna adicional oculta
+                )
+                
+                headers = (
+                    "ID Inscripción",
+                    "RUT",
+                    "Nombre Completo",
+                    "Estado",
+                    "Última Actualización",
+                    "Observaciones",
+                    "Total Docs",
+                    ""  # Header vacío para la columna oculta
+                )
+
+                self.tramitaciones_tree.config(columns=columns, show="headings")
+
+                # Configurar encabezados y ancho de columnas
+                column_widths = {
+                    "id_inscripcion": 100,
+                    "rut": 120,
+                    "nombre_completo": 250,
+                    "estado_general": 120,
+                    "fecha_ultimo_cambio": 150,
+                    "observacion": 300,
+                    "total_documentos": 100,
+                    "id_tramitacion": 0  # Ancho 0 para ocultar la columna
+                }
+
+                for column, header in zip(columns, headers):
+                    self.tramitaciones_tree.heading(column, text=header, anchor=tk.CENTER)
+                    self.tramitaciones_tree.column(column, width=column_widths.get(column, 100), anchor=tk.CENTER)
+
+                # Frame para detalles de documentos
+                detail_frame = ttk.LabelFrame(content_frame, text="Documentos de la Tramitación")
+                detail_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+                # Treeview para documentos con las columnas actualizadas
+                self.docs_tree = ttk.Treeview(
+                    detail_frame,
+                    columns=("doc_num", "nombre_tramite", "fecha_emision", "estado"),
+                    show="headings",
+                    height=5
+                )
+
+                self.docs_tree.pack(fill=tk.BOTH, expand=True)
+
+                # Configurar columnas de documentos
+                doc_headers = ("N° Documento", "Nombre Trámite", "Fecha Emisión", "Estado")
+                doc_widths = (100, 200, 150, 100)
+
+                for col, header, width in zip(self.docs_tree["columns"], doc_headers, doc_widths):
+                    self.docs_tree.heading(col, text=header, anchor=tk.CENTER)
+                    self.docs_tree.column(col, width=width, anchor=tk.CENTER)
+
+                # Binding para mostrar documentos al seleccionar una tramitación
+                self.tramitaciones_tree.bind('<<TreeviewSelect>>', self._show_tramitacion_docs)
+
+                # Cargar datos iniciales
+                self._refresh_tramitaciones()
+
+            except Exception as e:
+                print(f"Error al mostrar tramitaciones: {e}")
+                import traceback
+                traceback.print_exc()
+
+    def _filter_tramitaciones_by_rut(self):
+        """Filtra las tramitaciones por RUT"""
+        rut = self.rut_search.get().strip()
+        if not rut:
+            messagebox.showwarning("Advertencia", "Por favor ingrese un RUT")
+            return
+        
+        # Limpiar treeview
+        for item in self.tramitaciones_tree.get_children():
+            self.tramitaciones_tree.delete(item)
+        
+        # Obtener y mostrar tramitaciones filtradas
+        tramitaciones = fetch_tramitaciones_by_rut(rut)
+        self._populate_tramitaciones_tree(tramitaciones)
+
+    def _show_active_tramitaciones(self):
+        """Muestra solo las tramitaciones activas"""
+        # Limpiar treeview
+        for item in self.tramitaciones_tree.get_children():
+            self.tramitaciones_tree.delete(item)
+        
+        # Obtener y mostrar tramitaciones activas
+        tramitaciones = fetch_tramitaciones_activas()
+        self._populate_tramitaciones_tree(tramitaciones)
+
+    def _refresh_tramitaciones(self):
+        """Actualiza la vista con todas las tramitaciones"""
+        # Limpiar treeview
+        for item in self.tramitaciones_tree.get_children():
+            self.tramitaciones_tree.delete(item)
+        
+        # Obtener y mostrar todas las tramitaciones
+        tramitaciones = fetch_tramitaciones()
+        self._populate_tramitaciones_tree(tramitaciones)
+
+    def _populate_tramitaciones_tree(self, tramitaciones):
+        """Puebla el treeview con las tramitaciones"""
+        for i, tram in enumerate(tramitaciones):
+            tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+            self.tramitaciones_tree.insert("", "end", values=tram, tags=(tag,))
+
+    def _show_tramitacion_docs(self, event):
+        """Muestra los documentos de la tramitación seleccionada"""
+        selection = self.tramitaciones_tree.selection()
+        if not selection:
+            return
+        
+        # Limpiar treeview de documentos
+        for item in self.docs_tree.get_children():
+            self.docs_tree.delete(item)
+        
+        # Obtener id_tramitacion de la columna oculta (índice 7)
+        tramitacion_id = self.tramitaciones_tree.item(selection[0])['values'][7]
+        
+        print(f"Buscando documentos para tramitación ID: {tramitacion_id}")  # Debug
+        
+        # Obtener y mostrar documentos
+        documentos = fetch_tipos_tramite(tramitacion_id)
+        for i, doc in enumerate(documentos):
+            tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+            self.docs_tree.insert("", "end", values=doc, tags=(tag,))
+            
+    def show_tramitar(self):
         """Muestra la ventana de tramitaciones integrada en el frame principal"""
         try:
             # Limpiar solo el contenido principal
@@ -4811,7 +5737,98 @@ class App:
             import traceback
             traceback.print_exc()
 
+#================================================================
+#           Funciones de estado activo
+#================================================================
 
+    def show_active_students(self):
+        """
+        Muestra la ventana con los alumnos que están actualmente cursando.
+        """
+        try:
+            # Limpiar contenido principal
+            self._clear_main_content()
+            
+            # Actualizar título
+            self._update_title_label("Alumnos en Cursos Activos")
+            
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+            # Frame para el treeview y scrollbars
+            tree_frame = ttk.Frame(content_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True)
+            tree_frame.grid_rowconfigure(0, weight=1)
+            tree_frame.grid_columnconfigure(0, weight=1)
+
+            # Scrollbars
+            vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+            hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+            # Crear Treeview
+            self.tree = ttk.Treeview(
+                tree_frame,
+                selectmode="extended",
+                yscrollcommand=vscroll.set,
+                xscrollcommand=hscroll.set
+            )
+
+            # Configurar grid
+            self.tree.grid(row=0, column=0, sticky="nsew")
+            vscroll.grid(row=0, column=1, sticky="ns")
+            hscroll.grid(row=1, column=0, sticky="ew")
+
+            # Configurar scrollbars
+            vscroll.configure(command=self.tree.yview)
+            hscroll.configure(command=self.tree.xview)
+
+            # Menú contextual
+            self.context_menu = tk.Menu(tree_frame, tearoff=0)
+            self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
+            self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+
+            # Bindings para el menú contextual
+            self.tree.bind("<Button-3>", self._show_context_menu)
+            self.tree.bind("<Button-1>", self._save_click_position)
+            self.tree.bind("<ButtonRelease-3>", self._save_click_position)
+
+            # Configurar tags
+            self.tree.tag_configure('oddrow', background='#f5f5f5')
+            self.tree.tag_configure('evenrow', background='#ffffff')
+            
+            # Definir columnas
+            columns = ("N_Acta", "Nombre", "RUT", "ID_Curso")
+            headers = ("N° Acta", "Nombre Completo", "RUT", "Curso")
+
+            # Configurar Treeview
+            self.tree.config(columns=columns, show="headings")
+            
+            # Configurar anchos de columnas
+            column_widths = {
+                "N_Acta": 100,
+                "Nombre": 300,
+                "RUT": 120,
+                "ID_Curso": 150
+            }
+
+            # Aplicar configuraciones de columnas
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                width = column_widths.get(column, 100)
+                self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
+
+            # Obtener y mostrar datos
+            active_students = fetch_active_students()
+            
+            for i, student in enumerate(active_students):
+                tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+                self.tree.insert("", "end", values=student, tags=(tag,))
+
+        except Exception as e:
+            print(f"Error al mostrar alumnos activos: {e}")
+            import traceback
+            traceback.print_exc()
 
 # ------------------------ MAIN ------------------------
 if __name__ == "__main__":

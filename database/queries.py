@@ -669,40 +669,46 @@ def format_inscription_data(inscription):
         return None
 
 def fetch_inscription_by_id(id_inscripcion):
-    """
-    Obtiene los datos de una inscripción específica por su ID.
-    Retorna una tupla con los datos o None si no se encuentra.
-    """
+    """Obtiene una inscripción por su ID"""
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute("""
+            query = """
                 SELECT 
-                    i.id_inscripcion,
-                    i.id_alumno,
-                    i.id_curso,
-                    i.fecha_inscripcion,
-                    i.fecha_termino_condicional,
-                    i.anio_inscripcion,
-                    i.metodo_llegada,
-                    i.id_empresa,
-                    i.numero_acta,
-                    i.ordenSence,
-                    i.idfolio
-                FROM inscripciones i 
-                WHERE i.id_inscripcion = %s
-            """, (id_inscripcion,))
-            
+                    id_inscripcion,
+                    id_alumno,
+                    id_curso,
+                    fecha_inscripcion,
+                    fecha_termino_condicional,
+                    anio_inscripcion,
+                    metodo_llegada,
+                    id_empresa,
+                    numero_acta,
+                    ordenSence,
+                    idfolio
+                FROM inscripciones 
+                WHERE id_inscripcion = %s
+            """
+            cursor.execute(query, (id_inscripcion,))
             result = cursor.fetchone()
             
             if result:
-                print(f"Inscripción encontrada: {result}")
-                return result
-            else:
-                print(f"No se encontró inscripción con ID {id_inscripcion}")
-                return None
-                
+                return {
+                    'id_inscripcion': result[0],
+                    'id_alumno': result[1],
+                    'id_curso': result[2],
+                    'fecha_inscripcion': result[3],
+                    'fecha_termino_condicional': result[4],
+                    'anio_inscripcion': result[5],
+                    'metodo_llegada': result[6],
+                    'id_empresa': result[7],
+                    'numero_acta': result[8],
+                    'ordenSence': result[9],
+                    'idfolio': result[10]
+                }
+            return None
+            
         except Exception as e:
             print(f"Error al obtener inscripción: {e}")
             return None
@@ -711,111 +717,46 @@ def fetch_inscription_by_id(id_inscripcion):
             conn.close()
     return None
 
-def update_inscription(id_inscripcion,
-                    id_alumno=None,
-                    id_curso=None,
-                    fecha_inscripcion=None,
-                    fecha_termino_condicional=None,
-                    anio_inscripcion=None,
-                    metodo_llegada=None,
-                    id_empresa=None,
-                    numero_acta=None,
-                    ordenSence=None,
-                    idfolio=None):
-    """
-    Actualiza los datos de una inscripción existente.
-    Solo modifica los campos que no vengan como None.
-    """
+def update_inscription(id_inscripcion, **kwargs):
+    """Actualiza una inscripción"""
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
-            # 1) Obtener la inscripción actual
-            cursor.execute("SELECT * FROM Inscripciones WHERE id_inscripcion = %s", (id_inscripcion,))
-            inscripcion = cursor.fetchone()
-            if not inscripcion:
-                print(f"No se encontró inscripcion con ID {id_inscripcion}")
-                return False, "No se encontró la inscripción especificada."
             
-            # Mapeo de columnas de la tabla Inscripciones:
-            #  inscripcion[0] => id_inscripcion
-            #  inscripcion[1] => id_alumno
-            #  inscripcion[2] => id_curso
-            #  inscripcion[3] => fecha_inscripcion
-            #  inscripcion[4] => fecha_termino_condicional
-            #  inscripcion[5] => anio_inscripcion
-            #  inscripcion[6] => metodo_llegada
-            #  inscripcion[7] => id_empresa
-            #  inscripcion[8] => numero_acta
-            #  inscripcion[9] => ordenSence
-            #  inscripcion[10] => idfolio
-
-            # 2) Obtener valores actuales
-            current_values = {
-                'id_alumno': inscripcion[1],
-                'id_curso': inscripcion[2],
-                'fecha_inscripcion': inscripcion[3],
-                'fecha_termino_condicional': inscripcion[4],
-                'anio_inscripcion': inscripcion[5],
-                'metodo_llegada': inscripcion[6],
-                'id_empresa': inscripcion[7],
-                'numero_acta': inscripcion[8],
-                'ordenSence': inscripcion[9],
-                'idfolio': inscripcion[10]
-            }
-
-            # 3) Determinar nuevos valores
-            new_values = {
-                'id_alumno': id_alumno if id_alumno is not None else current_values['id_alumno'],
-                'id_curso': id_curso if id_curso is not None else current_values['id_curso'],
-                'fecha_inscripcion': fecha_inscripcion if fecha_inscripcion is not None else current_values['fecha_inscripcion'],
-                'fecha_termino_condicional': fecha_termino_condicional if fecha_termino_condicional is not None else current_values['fecha_termino_condicional'],
-                'anio_inscripcion': anio_inscripcion if anio_inscripcion is not None else current_values['anio_inscripcion'],
-                'metodo_llegada': metodo_llegada if metodo_llegada is not None else current_values['metodo_llegada'],
-                'id_empresa': id_empresa if id_empresa is not None else current_values['id_empresa'],
-                'numero_acta': numero_acta if numero_acta is not None else current_values['numero_acta'],
-                'ordenSence': ordenSence if ordenSence is not None else current_values['ordenSence'],
-                'idfolio': idfolio if idfolio is not None else current_values['idfolio']
-            }
-
-            # 4) Ejecutar UPDATE
-            update_query = """
-                UPDATE Inscripciones
-                SET id_alumno = %s,
-                    id_curso = %s,
-                    fecha_inscripcion = %s,
-                    fecha_termino_condicional = %s,
-                    anio_inscripcion = %s,
-                    metodo_llegada = %s,
-                    id_empresa = %s,
-                    numero_acta = %s,
-                    ordenSence = %s,
-                    idfolio = %s
-                WHERE id_inscripcion = %s
-            """
-            cursor.execute(update_query, (
-                new_values['id_alumno'],
-                new_values['id_curso'],
-                new_values['fecha_inscripcion'],
-                new_values['fecha_termino_condicional'],
-                new_values['anio_inscripcion'],
-                new_values['metodo_llegada'],
-                new_values['id_empresa'],
-                new_values['numero_acta'],
-                new_values['ordenSence'],
-                new_values['idfolio'],
-                id_inscripcion
-            ))
+            # Filtramos los campos que no son None
+            fields_to_update = {k: v for k, v in kwargs.items() if v is not None}
+            
+            if not fields_to_update:
+                return False, "No hay campos para actualizar"
+            
+            # Construimos la query dinámicamente
+            query = "UPDATE inscripciones SET "
+            query += ", ".join(f"{field} = %s" for field in fields_to_update.keys())
+            query += " WHERE id_inscripcion = %s"
+            
+            # Preparamos los valores
+            values = list(fields_to_update.values())
+            values.append(id_inscripcion)
+            
+            cursor.execute(query, tuple(values))
             conn.commit()
-            return True, "Inscripción actualizada exitosamente."
-
+            
+            if cursor.rowcount == 0:
+                return False, "No se encontró la inscripción para actualizar"
+            
+            return True, "Inscripción actualizada exitosamente"
+            
         except Exception as e:
-            print("Error al actualizar inscripción:", e)
-            return False, f"Error al actualizar la inscripción: {str(e)}"
+            print(f"Error en update_inscription: {str(e)}")
+            return False, f"Error al actualizar: {str(e)}"
+            
         finally:
             cursor.close()
             conn.close()
-    return False, "Error de conexión con la base de datos."
+    
+    return False, "Error de conexión con la base de datos"
+    
 
 def validate_alumno_exists(rut):
     """Verifica si existe un alumno con el RUT especificado."""
@@ -1011,28 +952,101 @@ def enroll_student(id_alumno, id_curso, numero_acta, fecha_inscripcion,
             cursor.close()
         conn.close()
 
-def fetch_courses_by_student_rut(rut):
-    """Obtiene los cursos realizados por un alumno y las fechas de inscripción."""
+def fetch_inscriptions_filtered(rut=None, act_number=None, nombre=None, fecha_inicio=None, fecha_fin=None):
+    """
+    Obtiene las inscripciones con información detallada (mismas columnas que fetch_inscriptions)
+    filtrando por:
+      - RUT del alumno (a.rut)
+      - Nº Acta (i.numero_acta)
+      - Nombre (a.nombre y/o a.apellido, búsqueda parcial)
+      - Fecha de inscripción o rango de fechas (i.fecha_inscripcion)
+    """
     conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                SELECT c.nombre_curso, i.fecha_inscripcion
-                FROM Inscripciones i
-                INNER JOIN Cursos c ON i.id_curso = c.id_curso
-                WHERE i.id_alumno = %s
-            """
-            cursor.execute(query, (rut,))
-            results = cursor.fetchall()
-        except Exception as e:
-            print("Error al obtener cursos del alumno:", e)
-            results = []
-        finally:
-            cursor.close()
-            conn.close()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        query = """
+            SELECT 
+                i.id_inscripcion as ID,
+                i.numero_acta as N_Acta,
+                a.rut as RUT,
+                CASE 
+                    WHEN a.nombre IS NOT NULL AND a.apellido IS NOT NULL 
+                    THEN CONCAT(a.nombre, ' ', a.apellido)
+                    ELSE a.nombre 
+                END as Nombre_Completo,
+                i.id_curso as ID_Curso,
+                i.fecha_inscripcion as F_Inscripcion,
+                i.fecha_termino_condicional as F_Termino,
+                i.anio_inscripcion as Año,
+                CASE 
+                    WHEN i.id_empresa IS NOT NULL THEN e.id_empresa 
+                    ELSE 'Particular'
+                END as Empresa,
+                i.ordenSence as Codigo_Sence,
+                i.idfolio as Folio,
+                COALESCE(
+                    CASE 
+                        WHEN p.estado IS NULL THEN 'SIN PROCESAR'
+                        ELSE UPPER(p.estado)
+                    END,
+                    'SIN PROCESAR'
+                ) as Estado_Pago
+            FROM inscripciones i
+            LEFT JOIN alumnos a ON i.id_alumno = a.rut
+            LEFT JOIN empresa e ON i.id_empresa = e.id_empresa
+            LEFT JOIN (
+                SELECT id_inscripcion, estado
+                FROM pagos
+                WHERE id_pago = (
+                    SELECT id_pago
+                    FROM pagos p2
+                    WHERE p2.id_inscripcion = pagos.id_inscripcion
+                    ORDER BY fecha_inscripcion DESC
+                    LIMIT 1
+                )
+            ) p ON i.id_inscripcion = p.id_inscripcion
+            WHERE 1=1
+        """
+        params = []
+
+        # Filtro por RUT
+        if rut:
+            query += " AND a.rut = %s"
+            params.append(rut)
+
+        # Filtro por Nº Acta
+        if act_number:
+            query += " AND i.numero_acta = %s"
+            params.append(act_number)
+
+        # Filtro por Nombre (en a.nombre o a.apellido, búsqueda parcial)
+        if nombre:
+            query += " AND (a.nombre ILIKE %s OR a.apellido ILIKE %s)"
+            like_param = f"%{nombre}%"
+            params.extend([like_param, like_param])
+
+        # Filtro por fecha (única o rango) en i.fecha_inscripcion
+        if fecha_inicio and fecha_fin:
+            query += " AND i.fecha_inscripcion BETWEEN %s AND %s"
+            params.extend([fecha_inicio, fecha_fin])
+        elif fecha_inicio:
+            query += " AND i.fecha_inscripcion = %s"
+            params.append(fecha_inicio)
+
+        query += " ORDER BY i.fecha_inscripcion DESC, i.id_inscripcion DESC"
+
+        cursor.execute(query, tuple(params))
+        results = cursor.fetchall()
+        print(f"Resultados obtenidos: {len(results)} inscripciones filtradas.")
         return results
-    return []
+    except Exception as e:
+        print("Error al obtener inscripciones filtradas:", e)
+        return []
+    finally:
+        cursor.close()
+        conn.close()
 
 def fetch_inscription_details(id_inscripcion):
     """
@@ -1174,6 +1188,37 @@ def fetch_inscription_details(id_inscripcion):
             conn.close()
     return None
 
+def fetch_active_students():
+    """
+    Retorna todos los alumnos que están actualmente cursando.
+    Incluye número de acta, nombre completo, RUT y ID del curso.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT DISTINCT 
+                    i.numero_acta,
+                    CONCAT(a.nombre, ' ', a.apellido) as nombre_completo,
+                    a.rut,
+                    i.id_curso
+                FROM inscripciones i
+                INNER JOIN alumnos a ON i.id_alumno = a.rut
+                WHERE i.fecha_termino_condicional >= CURDATE() 
+                OR i.fecha_termino_condicional IS NULL
+                ORDER BY nombre_completo
+            """
+            cursor.execute(query)
+            results = cursor.fetchall()
+            return results
+        except Exception as e:
+            print(f"Error al obtener alumnos activos: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
 # =======================================
 #             PAGOS
 # =======================================
@@ -1829,8 +1874,6 @@ def search_pagare_payments(search_type, value):
             conn.close()
     return results
 
-
-
 def fetch_inscription_details(id_inscripcion):
     """
     Obtiene los detalles de una inscripción específica para la ventana de añadir pago.
@@ -1964,44 +2007,107 @@ def fetch_payments_by_inscription(id_inscripcion):
 # =======================================
 #             FACTURACIÓN
 # =======================================
-def insert_invoice(id_inscripcion, numero_factura, monto_total, estado):
-    """Inserta una nueva factura en la tabla 'Facturacion'."""
+def insert_invoice(id_inscripcion, numero_factura, monto_total, estado='pendiente'):
+    """
+    Inserta una nueva factura en la tabla 'facturas'.
+    
+    Args:
+        id_inscripcion (int): ID de la inscripción asociada
+        numero_factura (str): Número único de factura
+        monto_total (float): Monto total de la factura
+        estado (str): Estado de la factura (default 'pendiente')
+        
+    Returns:
+        bool: True si la inserción fue exitosa, False en caso contrario
+    """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
             query = """
-                INSERT INTO Facturacion 
+                INSERT INTO facturas 
                 (id_inscripcion, numero_factura, monto_total, estado)
                 VALUES (%s, %s, %s, %s)
             """
             cursor.execute(query, (id_inscripcion, numero_factura, monto_total, estado))
             conn.commit()
+            return True
         except Exception as e:
-            print("Error al insertar factura:", e)
+            print(f"Error al insertar factura: {e}")
             return False
         finally:
             cursor.close()
             conn.close()
-        return True
     return False
 
 def fetch_invoices():
-    """Obtiene la lista de facturas."""
+    """
+    Obtiene la lista completa de facturas con información adicional de alumnos e inscripciones.
+    
+    Returns:
+        list: Lista de tuplas con la información de las facturas
+        Orden de columnas: id_factura, id_curso, nombre_completo, rut, numero_factura, 
+                          monto_total, estado, fecha_emision
+    """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM Facturacion")
-            results = cursor.fetchall()
+            query = """
+                SELECT 
+                    f.id_factura,
+                    i.id_curso,
+                    CONCAT(a.nombre, ' ', a.apellido) as nombre_completo,
+                    a.rut,
+                    f.numero_factura,
+                    f.monto_total,
+                    f.estado,
+                    f.fecha_emision
+                FROM facturas f
+                INNER JOIN inscripciones i ON f.id_inscripcion = i.id_inscripcion
+                INNER JOIN alumnos a ON i.id_alumno = a.rut
+                ORDER BY f.id_factura DESC
+            """
+            cursor.execute(query)
+            return cursor.fetchall()
         except Exception as e:
-            print("Error al obtener facturas:", e)
-            results = []
+            print(f"Error al obtener facturas: {e}")
+            return []
         finally:
             cursor.close()
             conn.close()
-        return results
     return []
+
+def update_invoice_status(id_factura, nuevo_estado):
+    """
+    Actualiza el estado de una factura.
+    
+    Args:
+        id_factura (int): ID de la factura a actualizar
+        nuevo_estado (str): Nuevo estado ('pendiente' o 'facturada')
+        
+    Returns:
+        bool: True si la actualización fue exitosa, False en caso contrario
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                UPDATE facturas
+                SET estado = %s
+                WHERE id_factura = %s
+            """
+            cursor.execute(query, (nuevo_estado, id_factura))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error al actualizar estado de factura: {e}")
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+    return False
 
 # =======================================
 #           EMPRESAS 
@@ -2518,3 +2624,550 @@ def fetch_user_by_credentials(username, password):
             conn.close()
 
 
+#=======================================================================
+#                   QUERIES FOR REPORTS
+#=======================================================================
+def fetch_inscription(student_rut):
+    """
+    Obtiene las inscripciones y datos de cursos para un alumno específico
+    """
+    conn = connect_db()
+    if not conn:
+        return []
+        
+    try:
+        cursor = conn.cursor()  # Usamos cursor normal, no dictionary
+        
+        query = """
+            SELECT 
+                c.id_curso,
+                c.nombre_curso,
+                i.numero_acta
+            FROM inscripciones i
+            INNER JOIN cursos c ON i.id_curso = c.id_curso
+            WHERE i.id_alumno = %s
+            ORDER BY i.fecha_inscripcion DESC
+        """
+        
+        cursor.execute(query, (student_rut,))
+        results = cursor.fetchall()
+        
+        # Convertimos los resultados a lista de diccionarios
+        formatted_results = []
+        for row in results:
+            formatted_results.append({
+                'ID_Curso': row[0],
+                'nombre_curso': row[1],
+                'N_Acta': row[2]
+            })
+            
+        return formatted_results
+        
+    except Exception as e:
+        print(f"Error en fetch_inscription: {str(e)}")
+        return []
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+def fetch_omi_courses(rut):
+    """
+    Obtiene los datos del alumno y sus cursos de competencia para certificación OMI.
+    Retorna una tupla (datos_alumno, cursos)
+    """
+    conn = connect_db()
+    if not conn:
+        return None, []
+
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Obtener datos del alumno
+        cursor.execute("""
+            SELECT rut, nombre, apellido 
+            FROM alumnos 
+            WHERE rut = %s
+        """, (rut,))
+        
+        alumno = cursor.fetchone()
+        
+        if not alumno:
+            return None, []
+            
+        # 2. Obtener cursos de competencia incluyendo id_inscripcion
+        cursor.execute("""
+            SELECT 
+                i.id_inscripcion,  -- Agregamos id_inscripcion
+                c.id_curso,
+                c.nombre_curso,
+                i.numero_acta
+            FROM inscripciones i
+            INNER JOIN cursos c ON i.id_curso = c.id_curso
+            WHERE i.id_alumno = %s
+            AND c.tipo_curso = 'COMPETENCIA'  -- Solo cursos presenciales
+            ORDER BY i.fecha_inscripcion DESC
+        """, (rut,))
+        
+        cursos = cursor.fetchall()
+        
+        return alumno, cursos
+        
+    except Exception as e:
+        print(f"Error en fetch_omi_courses: {e}")
+        return None, []
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+def get_or_create_tramitacion(id_inscripcion):
+    """
+    Obtiene o crea una tramitación para una inscripción
+    """
+    conn = connect_db()
+    if not conn:
+        raise Exception("No se pudo conectar a la base de datos")
+        
+    try:
+        cursor = conn.cursor()
+        
+        # Primero intentamos obtener una tramitación existente
+        cursor.execute("""
+            SELECT id_tramitacion 
+            FROM tramitaciones 
+            WHERE id_inscripcion = %s
+        """, (id_inscripcion,))
+        
+        result = cursor.fetchone()
+        
+        if result:
+            return result[0]
+            
+        # Si no existe, creamos una nueva
+        cursor.execute("""
+            INSERT INTO tramitaciones (id_inscripcion, estado_general) 
+            VALUES (%s, 'pendiente')
+        """, (id_inscripcion,))
+        
+        conn.commit()
+        return cursor.lastrowid
+        
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_apendice4_data(numero_acta):
+    """
+    Devuelve las filas de 'inscripciones' + 'cursos' + 'alumnos' para un numero_acta dado.
+    """
+    sql = """
+        SELECT
+        i.numero_acta,
+        c.nombre_curso,
+        c.modalidad,
+        i.fecha_inscripcion        AS fecha_inicio,
+        i.fecha_termino_condicional AS fecha_termino,
+        c.horas_cronologicas,
+        c.horas_pedagogicas,        -- <--- Asegúrate de incluir estas columnas
+        a.rut        AS rut_alumno,
+        a.nombre     AS nombre_alumno,
+        a.apellido   AS apellido_alumno,
+        a.profesion  AS profesion_alumno
+        FROM inscripciones i
+        JOIN cursos c   ON i.id_curso = c.id_curso
+        JOIN alumnos a  ON i.id_alumno = a.rut
+        WHERE i.numero_acta = %s
+        ORDER BY a.apellido, a.nombre
+    """
+
+    conn = connect_db()
+    try:
+        with conn.cursor(dictionary=True) as cursor:
+            cursor.execute(sql, (numero_acta,))
+            rows = cursor.fetchall()
+        return rows
+    except Exception as e:
+        print("Error en get_apendice4_data:", e)
+        return []
+    finally:
+        conn.close()
+
+def get_next_doc_number(conn, doc_type):
+    """
+    Aumenta la secuencia en doc_sequences para doc_type.
+    Cada doc_type lleva su numeración independiente.
+    """
+    sql_select = "SELECT last_number FROM doc_sequences WHERE doc_type=%s FOR UPDATE"
+    sql_insert = "INSERT INTO doc_sequences(doc_type, last_number) VALUES(%s, %s)"
+    sql_update = "UPDATE doc_sequences SET last_number=%s WHERE doc_type=%s"
+
+    with conn.cursor() as cursor:
+        cursor.execute(sql_select, (doc_type,))
+        row = cursor.fetchone()
+        if row is None:
+            # No existe => arrancamos en 1
+            new_number = 1
+            cursor.execute(sql_insert, (doc_type, new_number))
+        else:
+            last_number = row[0]
+            new_number = last_number + 1
+            cursor.execute(sql_update, (new_number, doc_type))
+    conn.commit()
+    return new_number
+
+def get_or_create_tramitacion(conn, id_inscripcion):
+    """
+    Obtiene o crea una tramitación para una inscripción.
+    
+    Args:
+        conn: Conexión a la base de datos
+        id_inscripcion: ID de la inscripción
+    
+    Returns:
+        int: ID de la tramitación
+    """
+    try:
+        cursor = conn.cursor(dictionary=True)
+        
+        # Primero intentamos obtener una tramitación existente
+        cursor.execute("""
+            SELECT id_tramitacion 
+            FROM tramitaciones 
+            WHERE id_inscripcion = %s
+        """, (id_inscripcion,))
+        
+        result = cursor.fetchone()
+        
+        if result:
+            return result['id_tramitacion']
+        
+        # Si no existe, creamos una nueva
+        cursor.execute("""
+            INSERT INTO tramitaciones (id_inscripcion)
+            VALUES (%s)
+        """, (id_inscripcion,))
+        
+        conn.commit()
+        return cursor.lastrowid
+        
+    except Exception as e:
+        conn.rollback()
+        raise Exception(f"Error al gestionar tramitación: {str(e)}")
+    finally:
+        cursor.close()
+
+def create_document_for_tramitacion(conn, id_tramitacion, doc_type_name):
+    """
+    Crea una nueva fila en 'tipos_tramite', asociada a la MISMA tramitacion.
+    - doc_num se obtiene de doc_sequences (doc_type_name).
+    - fecha_emision = hoy (puedes cambiarlo).
+    - estado = 'pendiente'.
+
+    Retorna (id_tipo_tramite, doc_num).
+    """
+    from datetime import date
+
+    doc_num = get_next_doc_number(conn, doc_type_name)
+    today = date.today()
+
+    sql_insert = """
+        INSERT INTO tipos_tramite (id_tramitacion, doc_num, nombre_tramite, fecha_emision, estado)
+        VALUES (%s, %s, %s, %s, %s)
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql_insert, (id_tramitacion, doc_num, doc_type_name, today, 'completado'))
+        new_id_tipo_tramite = cursor.lastrowid
+
+    conn.commit()
+    return new_id_tipo_tramite, doc_num
+
+#=======================================================================
+#       Tramitaciones
+#=======================================================================
+
+def fetch_tramitaciones():
+    """
+    Obtiene todas las tramitaciones con información relacionada
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+            SELECT  
+                i.id_inscripcion,
+                a.rut,
+                CONCAT(a.nombre, ' ', a.apellido) as nombre_completo,
+                t.estado_general,
+                t.fecha_ultimo_cambio,
+                t.observacion,
+                COUNT(tt.estado) as total_documentos,
+                t.id_tramitacion
+            FROM tramitaciones t
+            JOIN inscripciones i ON t.id_inscripcion = i.id_inscripcion
+            JOIN alumnos a ON i.id_alumno = a.rut
+            LEFT JOIN tipos_tramite tt ON t.id_tramitacion = tt.id_tramitacion
+            GROUP BY i.id_inscripcion, a.rut, nombre_completo, 
+                     t.estado_general, t.fecha_ultimo_cambio, t.observacion, t.id_tramitacion
+            ORDER BY t.fecha_ultimo_cambio DESC
+            """
+            cursor.execute(query)
+            results = cursor.fetchall()
+            return results
+        except Exception as e:
+            print("Error al obtener tramitaciones:", e)
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
+
+def fetch_tramitaciones_by_rut(rut):
+    """
+    Obtiene todas las tramitaciones de un alumno específico
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+            SELECT  
+                i.id_inscripcion,
+                a.rut,
+                CONCAT(a.nombre, ' ', a.apellido) as nombre_completo,
+                t.estado_general,
+                t.fecha_ultimo_cambio,
+                t.observacion,
+                COUNT(tt.estado) as total_documentos,
+                t.id_tramitacion
+            FROM tramitaciones t
+            JOIN inscripciones i ON t.id_inscripcion = i.id_inscripcion
+            JOIN alumnos a ON i.id_alumno = a.rut
+            LEFT JOIN tipos_tramite tt ON t.id_tramitacion = tt.id_tramitacion
+            WHERE a.rut = %s
+            GROUP BY i.id_inscripcion, a.rut, nombre_completo,
+                     t.estado_general, t.fecha_ultimo_cambio, t.observacion, t.id_tramitacion
+            ORDER BY t.fecha_ultimo_cambio DESC
+            """
+            cursor.execute(query, (rut,))
+            results = cursor.fetchall()
+            return results
+        except Exception as e:
+            print(f"Error al obtener tramitaciones para RUT {rut}:", e)
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
+
+def fetch_tramitaciones_activas():
+    """
+    Obtiene todas las tramitaciones que no están en estado completado
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+            SELECT  
+                i.id_inscripcion,
+                a.rut,
+                CONCAT(a.nombre, ' ', a.apellido) as nombre_completo,
+                t.estado_general,
+                t.fecha_ultimo_cambio,
+                t.observacion,
+                COUNT(tt.estado) as total_documentos,
+                t.id_tramitacion
+            FROM tramitaciones t
+            JOIN inscripciones i ON t.id_inscripcion = i.id_inscripcion
+            JOIN alumnos a ON i.id_alumno = a.rut
+            LEFT JOIN tipos_tramite tt ON t.id_tramitacion = tt.id_tramitacion
+            WHERE t.estado_general != 'completado'
+            GROUP BY i.id_inscripcion, a.rut, nombre_completo,
+                     t.estado_general, t.fecha_ultimo_cambio, t.observacion, t.id_tramitacion
+            ORDER BY t.fecha_ultimo_cambio DESC
+            """
+            cursor.execute(query)
+            results = cursor.fetchall()
+            return results
+        except Exception as e:
+            print("Error al obtener tramitaciones activas:", e)
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
+
+def fetch_tipos_tramite(id_tramitacion):
+    """
+    Obtiene todos los documentos asociados a una tramitación
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+            SELECT 
+                doc_num,
+                nombre_tramite,
+                fecha_emision,
+                estado
+            FROM tipos_tramite
+            WHERE id_tramitacion = %s
+            ORDER BY fecha_emision DESC
+            """
+            cursor.execute(query, (id_tramitacion,))
+            results = cursor.fetchall()
+            return results
+        except Exception as e:
+            print(f"Error al obtener documentos para tramitación {id_tramitacion}:", e)
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
+
+
+# =======================================
+#   Libro de clases
+#========================================
+
+def fetch_active_formation_courses():
+    """Obtiene los cursos de formación activos."""
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT DISTINCT 
+                    c.id_curso,
+                    c.nombre_curso,
+                    i.numero_acta,
+                    i.fecha_inscripcion,
+                    i.fecha_termino_condicional,
+                    COUNT(DISTINCT i.id_alumno) as num_alumnos,
+                    l.id_libro,
+                    l.estado
+                FROM cursos c
+                INNER JOIN inscripciones i ON c.id_curso = i.id_curso
+                LEFT JOIN libros_clase l ON i.id_inscripcion = l.id_inscripcion
+                WHERE c.tipo_curso = 'formacion'
+                AND (i.fecha_termino_condicional >= CURDATE() OR i.fecha_termino_condicional IS NULL)
+                GROUP BY c.id_curso
+            """
+            cursor.execute(query)
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"Error al obtener cursos de formación activos: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
+
+def create_class_book(id_inscripcion, fecha_inicio):
+    """Crea un nuevo libro de clases."""
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO libros_clase (id_inscripcion, fecha_inicio)
+                VALUES (%s, %s)
+            """
+            cursor.execute(query, (id_inscripcion, fecha_inicio))
+            conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            print(f"Error al crear libro de clases: {e}")
+            conn.rollback()
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+
+def add_weekly_content(id_libro, semana, fecha, contenido, observaciones=None):
+    """Agrega contenido semanal al libro de clases."""
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO contenidos_semanales 
+                (id_libro, semana, fecha, contenido_tratado, observaciones)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            cursor.execute(query, (id_libro, semana, fecha, contenido, observaciones))
+            conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            print(f"Error al agregar contenido semanal: {e}")
+            conn.rollback()
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+
+def register_attendance(id_contenido, asistencias):
+    """Registra la asistencia de los alumnos."""
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO asistencia_alumnos 
+                (id_contenido, id_alumno, estado_asistencia, observacion)
+                VALUES (%s, %s, %s, %s)
+            """
+            for asistencia in asistencias:
+                cursor.execute(query, (
+                    id_contenido,
+                    asistencia['id_alumno'],
+                    asistencia['estado'],
+                    asistencia.get('observacion')
+                ))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error al registrar asistencia: {e}")
+            conn.rollback()
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+
+def get_class_book_content(id_libro):
+    """Obtiene todo el contenido de un libro de clases."""
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT 
+                    cs.semana,
+                    cs.fecha,
+                    cs.contenido_tratado,
+                    cs.observaciones,
+                    aa.id_alumno,
+                    aa.estado_asistencia,
+                    aa.observacion
+                FROM contenidos_semanales cs
+                LEFT JOIN asistencia_alumnos aa ON cs.id_contenido = aa.id_contenido
+                WHERE cs.id_libro = %s
+                ORDER BY cs.semana, cs.fecha, aa.id_alumno
+            """
+            cursor.execute(query, (id_libro,))
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"Error al obtener contenido del libro: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
