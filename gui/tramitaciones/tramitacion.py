@@ -10,6 +10,8 @@ from gui.tramitaciones.carta_omi import OMICertificationWindow
 from gui.tramitaciones.habilitacion_sin import HabilitacionSinWindow
 from gui.tramitaciones.habilitacion_con import HabilitacionWindow
 from gui.tramitaciones.nave_menor import HabilitacionNaveMenorWindow
+from gui.tramitaciones.ap6 import Apendice6Window
+from gui.tramitaciones.libro import LibroClasesFrame
 
 
 class IntegratedTramitacionesFrame(tk.Frame):
@@ -25,6 +27,8 @@ class IntegratedTramitacionesFrame(tk.Frame):
         self.habilitacion_sin_window = None
         self.habilitacion_con_window = None
         self.nave_menor_window= None
+        self.libro_window = None
+        self.ap6_window = None
         
         # Rutas de archivo
         self.OUTPUT_PATH = Path(__file__).parent
@@ -176,6 +180,10 @@ class IntegratedTramitacionesFrame(tk.Frame):
             self.open_habilitacion_con()
         elif button_name == 'button_7':
             self.open_nave_menor()
+        elif button_name == 'button_8':
+            self.open_libro()
+        elif button_name == 'button_9':
+            self.open_apendice6()
         else:
             print(f"{button_name} clicked")
 
@@ -190,6 +198,52 @@ class IntegratedTramitacionesFrame(tk.Frame):
             self.ap4_window.pack(fill='both', expand=True)
         else:
             self.ap4_window.lift()
+    
+    def open_apendice6(self):
+        """Abre la ventana de Apéndice 6 en un Toplevel."""
+        if self.ap6_window is None or not self.ap6_window.winfo_exists():
+            window = tk.Toplevel(self)
+            window.title("Apéndice N° 6")
+            window.state('zoomed')  # Maximizar ventana
+            
+            self.ap6_window = Apendice6Window(window)
+            self.ap6_window.pack(fill='both', expand=True)
+        else:
+            self.ap6_window.lift()
+
+    def open_libro(self):
+        """Abre la ventana de libro de curso en un Toplevel."""
+        if self.libro_window is None or not self.libro_window.winfo_exists():
+            window = tk.Toplevel(self)
+            window.title("Habilitación Sin Título Internacional")
+            
+            # Establecer un tamaño fijo más compacto
+            window_width = 470
+            window_height = 420
+            
+            # Obtener dimensiones de la pantalla
+            screen_width = window.winfo_screenwidth()
+            screen_height = window.winfo_screenheight()
+            
+            # Calcular posición para centrar
+            x = (screen_width - window_width) // 2
+            y = (screen_height - window_height) // 2
+            
+            # Configurar geometría y posición
+            window.geometry(f"{window_width}x{window_height}+{x}+{y}")
+            
+            # Prevenir redimensión
+            window.resizable(False, False)
+            
+            # Asegurar que esta ventana sea modal
+            window.transient(self)
+            window.grab_set()
+            
+            # Crear y empaquetar la ventana de habilitación
+            self.libro_window = LibroClasesFrame(window)
+            self.libro_window.pack(fill='both', expand=True)
+        else:
+            self.libro_window.lift()
 
     def open_medico_inter(self):
         """Abre la ventana de MedicoInter en un Toplevel."""

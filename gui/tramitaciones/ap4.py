@@ -6,6 +6,7 @@ from docxtpl import DocxTemplate
 
 from database.queries import get_apendice4_data
 
+
 class Apendice4Window(ttk.Frame):
     def __init__(self, parent):
         """
@@ -37,7 +38,39 @@ class Apendice4Window(ttk.Frame):
         # Construimos la interfaz y empacamos el frame
         self.setup_ui()
         self.pack(fill='both', expand=True)
+  
+    def setup_styles(self):
+        style = ttk.Style()
+        style.configure('Action.TButton',
+                font=('Helvetica', 10, 'bold'),
+                padding=(10, 5),
+                background='#00239c',
+                foreground='white',
+                relief='raised',  # Cambiado a raised para dar el efecto 3D
+                borderwidth=1)    # Añadido borde
 
+        style.map('Action.TButton',
+                    background=[('active', '#001970'),
+                            ('pressed', '#00239c')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')],
+                    relief=[('pressed', 'sunken')])  # Efecto presionado
+
+        style.configure('delete.TButton',
+                        font=('Helvetica', 10, 'bold'),
+                        padding=(10, 5),
+                        background='#b50707',
+                        foreground='white',
+                        relief='raised',  # Cambiado a raised para dar el efecto 3D
+                        borderwidth=1)    # Añadido borde
+
+        style.map('delete.TButton',
+                    background=[('active', '#990606'),
+                            ('pressed', '#b50707')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')],
+                    relief=[('pressed', 'sunken')])  # Efecto presionado
+          
     def setup_ui(self):
         """Crea y dispone todos los widgets en la ventana."""
         # Frame superior (arriba): datos de acta y formulario
@@ -51,7 +84,7 @@ class Apendice4Window(ttk.Frame):
         self.acta_entry = ttk.Entry(top_frame, textvariable=self.acta_var, width=20)
         self.acta_entry.grid(row=0, column=1, padx=5, pady=5, sticky='w')
         
-        buscar_btn = ttk.Button(top_frame, text="Buscar", command=self.cargar_datos_bd)
+        buscar_btn = ttk.Button(top_frame, text="Buscar",style='Action.TButton', command=self.cargar_datos_bd)
         buscar_btn.grid(row=0, column=2, padx=5, pady=5, sticky='w')
 
         # 2) Relatores
@@ -101,9 +134,9 @@ class Apendice4Window(ttk.Frame):
         btns_frame = ttk.Frame(top_frame)
         btns_frame.grid(row=4, column=0, columnspan=3, padx=5, pady=10, sticky='e')
 
-        ttk.Button(btns_frame, text="Limpiar", command=self.limpiar_formulario).pack(side='right', padx=5)
-        ttk.Button(btns_frame, text="Vista Previa", command=self.vista_previa).pack(side='right', padx=5)
-        ttk.Button(btns_frame, text="Generar Documento", command=self.generar_documento).pack(side='right', padx=5)
+        ttk.Button(btns_frame, text="Limpiar",style="delete.TButton", command=self.limpiar_formulario).pack(side='right', padx=5)
+        ttk.Button(btns_frame, text="Vista Previa",style="Action.TButton", command=self.vista_previa).pack(side='right', padx=5)
+        ttk.Button(btns_frame, text="Generar Documento",style="Action.TButton", command=self.generar_documento).pack(side='right', padx=5)
 
         # Frame inferior (abajo): Treeview con alumnos
         bottom_frame = ttk.LabelFrame(self, text="Alumnos con este Acta", padding=5)

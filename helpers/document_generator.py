@@ -108,10 +108,6 @@ def generate_cotizacion_doc(cotizacion_data, detalles, parent_window=None):
         # Renderizar el documento
         doc.render(context)
         
-        # Crear el directorio de salida si no existe
-        output_dir = os.path.join(os.getcwd(), 'cotizaciones_generadas')
-        os.makedirs(output_dir, exist_ok=True)
-        
         # Crear nombre de archivo con fecha y hora
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         default_filename = f"COT_{str(cotizacion_data['id_cotizacion']).zfill(4)}_{timestamp}.docx"
@@ -121,7 +117,6 @@ def generate_cotizacion_doc(cotizacion_data, detalles, parent_window=None):
             parent=parent_window,
             defaultextension=".docx",
             initialfile=default_filename,
-            initialdir=output_dir,
             filetypes=[("Documento Word", "*.docx"), ("Todos los archivos", "*.*")]
         )
         

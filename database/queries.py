@@ -1478,83 +1478,234 @@ def insert_payment_contribution(id_pago, tipo_contribuyente, monto):
             conn.close()
     return False
 
-def update_payment_status(id_pago, nuevo_estado):
+
+def update_cuota(id_cuota, valor_cuota=None, fecha_vencimiento=None):
     """
-    Actualiza el estado de un pago.
+    Actualiza campos de la cuota y registra en el historial si se marca como pagada.
+    Retorna una tupla (éxito, numero_ingreso).
     """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
-            query = "UPDATE pagos SET estado = %s WHERE id_pago = %s"
-            cursor.execute(query, (nuevo_estado, id_pago))
+            
+            # Obtenemos información completa de la cuota
+            cursor.execute("""
+                SELECT c.estado_cuota, c.numero_ingreso, c.valor_cuota,
+                       c.id_pago, p.id_inscripcion, a.rut,
+                       CONCAT(a.nombre, ' ', a.apellido) as nombre_completo,
+                       c.nro_cuota
+                FROM cuotas c
+                JOIN pagos p ON c.id_pago = p.id_pago
+                JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+                JOIN alumnos a ON i.id_alumno = a.rut
+                WHERE c.id_cuota = %s
+            """, (id_cuota,))
+            
+            result = cursor.fetchone()
+            if not result:
+                return False, None
+            
+            (estado_actual, num_ingreso_actual, valor_actual, 
+             id_pago, id_inscripcion, rut, nombre_alumno, nro_cuota) = result
+            
+            # Construimos campos a actualizar
+            fields = []
+            params = []
+            
+            if valor_cuota is not None:
+                fields.append("valor_cuota = %s")
+                params.append(valor_cuota)
+                valor_a_usar = valor_cuota
+            else:
+                valor_a_usar = valor_actual
+
+            if fecha_vencimiento is not None:
+                fields.append("fecha_vencimiento = %s")
+                params.append(fecha_vencimiento)
+            
+            # Si la cuota se está marcando como pagada y no tiene número de ingreso
+            if estado_actual != 'pagada' and num_ingreso_actual is None:
+                # Obtenemos el último número de ingreso
+                cursor.execute("""
+                    SELECT MAX(CAST(SUBSTRING(numero_ingreso, 4) AS UNSIGNED))
+                    FROM cuotas 
+                    WHERE numero_ingreso IS NOT NULL
+                """)
+                last_num = cursor.fetchone()[0] or 0
+                new_num = last_num + 1
+                new_num_ingreso = f"IN-{new_num:06d}"
+                
+                fields.append("numero_ingreso = %s")
+                params.append(new_num_ingreso)
+                fields.append("estado_cuota = 'pagada'")
+                fields.append("fecha_pago = CURRENT_TIMESTAMP")
+                
+                # Registrar en historial
+                cursor.execute("""
+                    INSERT INTO historial_pagos (
+                        tipo_pago, id_pago, id_cuota, id_inscripcion,
+                        rut_alumno, nombre_alumno, monto, 
+                        numero_ingreso, detalle
+                    ) VALUES (
+                        'pagare', %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                """, (
+                    id_pago, id_cuota, id_inscripcion, rut, 
+                    nombre_alumno, valor_a_usar, new_num_ingreso,
+                    f'Pago de cuota {nro_cuota}'
+                ))
+            else:
+                new_num_ingreso = num_ingreso_actual
+            
+            # Si no hay campos a actualizar
+            if not fields:
+                cursor.close()
+                conn.close()
+                return True, new_num_ingreso
+            
+            set_clause = ", ".join(fields)
+            query = f"UPDATE cuotas SET {set_clause} WHERE id_cuota = %s"
+            params.append(id_cuota)
+            
+            cursor.execute(query, params)
             conn.commit()
-            return True
-        except Exception as e:
-            print("Error al actualizar estado del pago:", e)
-            return False
-        finally:
             cursor.close()
             conn.close()
-    return False
+            return True, new_num_ingreso
+            
+        except Exception as e:
+            print("Error en update_cuota:", e)
+            if conn:
+                conn.rollback()
+                conn.close()
+            return False, None
+    return False, None
+
+def fetch_cuotas_by_pago(id_pago):
+    """
+    Obtiene todas las cuotas asociadas a un pago, incluyendo el número de ingreso.
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id_cuota, id_pago, nro_cuota, valor_cuota, 
+                       fecha_vencimiento, fecha_pago, estado_cuota, numero_ingreso
+                FROM cuotas 
+                WHERE id_pago = %s 
+                ORDER BY nro_cuota
+            """, (id_pago,))
+            result = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return result
+        except Exception as e:
+            print("Error en fetch_cuotas_by_pago:", e)
+            conn.close()
+            return None
+    return None
 
 def register_quota_payment(id_cuota):
     """
-    1) Actualiza la cuota (id_cuota) a estado_cuota='pagada' y fecha_pago=NOW().
-    2) Chequea si TODAS las cuotas de ese pago están pagadas.
-    3) Si TODAS están pagadas, actualiza pagos.estado='pagado', fecha_final=NOW().
-    4) Caso contrario, el pago sigue estado='pendiente'.
+    Registra el pago de una cuota y genera su número de ingreso.
+    Retorna una tupla (éxito, numero_ingreso).
     """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
-            # 1) Marcar la cuota como pagada
-            query_cuota = """
-                UPDATE cuotas
-                SET estado_cuota = 'pagada',
-                    fecha_pago = NOW()
-                WHERE id_cuota = %s
-            """
-            cursor.execute(query_cuota, (id_cuota,))
-
-            # 2) Verificar si TODAS las cuotas están pagadas
-            query_check = """
-                SELECT p.id_pago,
-                       COUNT(c.id_cuota) as total_cuotas,
-                       SUM(CASE WHEN c.estado_cuota = 'pagada' THEN 1 ELSE 0 END) as cuotas_pagadas
-                FROM pagos p
-                JOIN cuotas c ON p.id_pago = c.id_pago
+            
+            # Obtenemos información completa de la cuota
+            cursor.execute("""
+                SELECT c.estado_cuota, c.numero_ingreso, c.valor_cuota,
+                       c.id_pago, p.id_inscripcion, i.id_alumno as rut,
+                       CONCAT(a.nombre, ' ', a.apellido) as nombre_completo,
+                       c.nro_cuota
+                FROM cuotas c
+                JOIN pagos p ON c.id_pago = p.id_pago
+                JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+                JOIN alumnos a ON i.id_alumno = a.rut
                 WHERE c.id_cuota = %s
-                GROUP BY p.id_pago
-            """
-            cursor.execute(query_check, (id_cuota,))
-            row = cursor.fetchone()
-            if row:
-                id_pago = row[0]
-                total_cuotas = row[1]
-                cuotas_pagadas = row[2]
-
-                # 3) Si todas pagadas => marcar pago como 'pagado'
-                if cuotas_pagadas == total_cuotas:
-                    query_pago = """
-                        UPDATE pagos
-                        SET estado = 'pagado',
-                            fecha_final = NOW()
-                        WHERE id_pago = %s
-                    """
-                    cursor.execute(query_pago, (id_pago,))
-
+            """, (id_cuota,))
+            
+            result = cursor.fetchone()
+            if not result:
+                return False, None
+            
+            estado_actual, num_ingreso_actual, valor_cuota, id_pago, id_inscripcion, rut, nombre_alumno, nro_cuota = result
+            
+            if estado_actual == 'pagada' and num_ingreso_actual:
+                return True, num_ingreso_actual
+            
+            # Generamos nuevo número de ingreso
+            cursor.execute("""
+                SELECT MAX(CAST(SUBSTRING(numero_ingreso, 4) AS UNSIGNED))
+                FROM cuotas 
+                WHERE numero_ingreso IS NOT NULL
+            """)
+            last_num = cursor.fetchone()[0] or 0
+            new_num = last_num + 1
+            new_num_ingreso = f"IN-{new_num:06d}"
+            
+            # Actualizamos la cuota
+            cursor.execute("""
+                UPDATE cuotas 
+                SET estado_cuota = 'pagada',
+                    fecha_pago = CURRENT_TIMESTAMP,
+                    numero_ingreso = %s
+                WHERE id_cuota = %s
+            """, (new_num_ingreso, id_cuota))
+            
+            # Registramos en el historial de pagos
+            cursor.execute("""
+                INSERT INTO historial_pagos (
+                    fecha_registro,
+                    tipo_pago,
+                    id_inscripcion,
+                    id_pago,
+                    id_cuota,
+                    rut_alumno,
+                    nombre_alumno,
+                    monto,
+                    numero_ingreso,
+                    detalle
+                ) VALUES (
+                    CURRENT_TIMESTAMP,
+                    'pagare',
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s
+                )
+            """, (
+                id_inscripcion,
+                id_pago,
+                id_cuota,
+                rut,
+                nombre_alumno,
+                valor_cuota,
+                new_num_ingreso,
+                f'Pago de cuota {nro_cuota}'
+            ))
+            
             conn.commit()
-            return True
-        except Exception as e:
-            conn.rollback()
-            print("Error al registrar cuota pagada:", e)
-            return False
-        finally:
             cursor.close()
             conn.close()
-    return False
+            return True, new_num_ingreso
+            
+        except Exception as e:
+            print("Error en register_quota_payment:", e)
+            if conn:
+                conn.rollback()
+                conn.close()
+            return False, None
+    return False, None
 
 def get_payment_completion_info(id_pago):
     """
@@ -1753,80 +1904,102 @@ def get_payment_summary_by_dates(fecha_inicio, fecha_fin):
             conn.close()
     return None
 
-def fetch_cuotas_by_pago(id_pago):
+def register_contado_payment(payment_id):
     """
-    Devuelve todas las cuotas relacionadas a un pago específico,
-    ordenadas por nro_cuota.
+    Registra un pago al contado y lo añade al historial
     """
     conn = connect_db()
     if conn:
         try:
             cursor = conn.cursor()
-            query = """
-                SELECT id_cuota,
-                       id_pago,
-                       nro_cuota,
-                       valor_cuota,
-                       fecha_vencimiento,
-                       fecha_pago,
-                       estado_cuota
-                FROM cuotas
+            
+            # Obtenemos la información necesaria del pago incluyendo el id_inscripcion
+            cursor.execute("""
+                SELECT p.valor_total, p.id_inscripcion, a.rut, CONCAT(a.nombre, ' ', a.apellido) as nombre_completo
+                FROM pagos p
+                JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+                JOIN alumnos a ON i.id_alumno = a.rut
+                WHERE p.id_pago = %s 
+                AND p.tipo_pago = 'contado' 
+                AND p.estado = 'pendiente'
+            """, (payment_id,))
+            
+            result = cursor.fetchone()
+            if not result:
+                return False
+            
+            monto, id_inscripcion, rut, nombre = result
+            
+            # Actualizar el pago
+            cursor.execute("""
+                UPDATE pagos 
+                SET estado = 'pagado',
+                    fecha_pago = CURRENT_TIMESTAMP
                 WHERE id_pago = %s
-                ORDER BY nro_cuota
-            """
-            cursor.execute(query, (id_pago,))
-            results = cursor.fetchall()
-            cursor.close()
-            conn.close()
-            return results  # Lista de tuplas
-        except Exception as e:
-            print("Error en fetch_cuotas_by_pago:", e)
-            conn.close()
-            return []
-    return []
-
-def update_cuota(id_cuota, valor_cuota=None, fecha_vencimiento=None):
-    """
-    Actualiza campos de la cuota según los argumentos que no sean None.
-    Ejemplo de uso: update_cuota(5, valor_cuota=30000.0, fecha_vencimiento='2025-01-01')
-    """
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
+            """, (payment_id,))
             
-            # Construimos dinámicamente los campos a actualizar
-            fields = []
-            params = []
+            if cursor.rowcount == 0:
+                raise Exception("No se pudo actualizar el pago")
             
-            if valor_cuota is not None:
-                fields.append("valor_cuota = %s")
-                params.append(valor_cuota)
-            if fecha_vencimiento is not None:
-                fields.append("fecha_vencimiento = %s")
-                params.append(fecha_vencimiento)
+            # Registrar en historial incluyendo id_inscripcion
+            cursor.execute("""
+                INSERT INTO historial_pagos (
+                    tipo_pago, id_pago, id_inscripcion, 
+                    rut_alumno, nombre_alumno, monto, detalle
+                ) VALUES (
+                    'contado', %s, %s, %s, %s, %s, 'Pago al contado registrado'
+                )
+            """, (payment_id, id_inscripcion, rut, nombre, monto))
             
-            # Si no hay campos a actualizar, retornamos True sin hacer nada
-            if not fields:
-                cursor.close()
-                conn.close()
-                return True
-            
-            set_clause = ", ".join(fields)
-            query = f"UPDATE cuotas SET {set_clause} WHERE id_cuota = %s"
-            params.append(id_cuota)
-            
-            cursor.execute(query, params)
             conn.commit()
             cursor.close()
             conn.close()
             return True
+            
         except Exception as e:
-            print("Error en update_cuota:", e)
-            conn.rollback()
-            conn.close()
+            print(f"Error en register_contado_payment: {e}")
+            if conn:
+                conn.rollback()
+                conn.close()
             return False
     return False
+
+def get_payment_history():
+    """
+    Obtiene el historial completo de pagos ordenado por fecha
+    """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    fecha_registro,
+                    tipo_pago,
+                    rut_alumno,
+                    nombre_alumno,
+                    monto,
+                    CASE 
+                        WHEN tipo_pago = 'pagare' THEN numero_ingreso
+                        ELSE ''
+                    END as numero_ingreso,
+                    detalle
+                FROM historial_pagos
+                ORDER BY fecha_registro DESC
+            """)
+            
+            results = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return results
+            
+        except Exception as e:
+            print(f"Error obteniendo historial: {e}")
+            if conn:
+                conn.close()
+            return None
+    return None
 
 def search_pagare_payments(search_type, value):
     """
@@ -2890,7 +3063,41 @@ def create_document_for_tramitacion(conn, id_tramitacion, doc_type_name):
 #=======================================================================
 #       Tramitaciones
 #=======================================================================
-
+def get_apendice6_data(numero_acta):
+    """
+    Obtiene los datos necesarios para generar el Apéndice 6 basado en el número de acta
+    """
+    query = """
+    SELECT 
+        i.numero_acta,
+        c.nombre_curso,
+        c.horas_cronologicas,
+        c.horas_pedagogicas,
+        i.fecha_inscripcion as fecha_inicio,
+        i.fecha_termino_condicional as fecha_termino,
+        a.rut,
+        a.nombre,
+        a.apellido,
+        a.profesion,
+        '' as mmn  -- Campo placeholder para MMN si se necesita agregar después
+    FROM inscripciones i
+    JOIN cursos c ON i.id_curso = c.id_curso
+    JOIN alumnos a ON i.id_alumno = a.rut
+    WHERE i.numero_acta = %s
+    ORDER BY a.apellido, a.nombre
+    """
+    
+    try:
+        conn = connect_db()
+        with conn.cursor(dictionary=True) as cursor:
+            cursor.execute(query, (numero_acta,))
+            results = cursor.fetchall()
+        conn.close()
+        return results
+    except Exception as e:
+        print(f"Error en get_apendice6_data: {e}")
+        return None
+    
 def fetch_tramitaciones():
     """
     Obtiene todas las tramitaciones con información relacionada
@@ -3038,136 +3245,102 @@ def fetch_tipos_tramite(id_tramitacion):
 #   Libro de clases
 #========================================
 
-def fetch_active_formation_courses():
-    """Obtiene los cursos de formación activos."""
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                SELECT DISTINCT 
-                    c.id_curso,
-                    c.nombre_curso,
-                    i.numero_acta,
-                    i.fecha_inscripcion,
-                    i.fecha_termino_condicional,
-                    COUNT(DISTINCT i.id_alumno) as num_alumnos,
-                    l.id_libro,
-                    l.estado
-                FROM cursos c
-                INNER JOIN inscripciones i ON c.id_curso = i.id_curso
-                LEFT JOIN libros_clase l ON i.id_inscripcion = l.id_inscripcion
-                WHERE c.tipo_curso = 'formacion'
-                AND (i.fecha_termino_condicional >= CURDATE() OR i.fecha_termino_condicional IS NULL)
-                GROUP BY c.id_curso
-            """
-            cursor.execute(query)
-            return cursor.fetchall()
-        except Exception as e:
-            print(f"Error al obtener cursos de formación activos: {e}")
-            return []
-        finally:
-            cursor.close()
-            conn.close()
-    return []
+def check_carpeta_exists(cursor, numero_acta, id_curso):
+    """Verifica si existe una carpeta de libros para esta acta y curso"""
+    query = """
+        SELECT id_carpeta 
+        FROM carpeta_libros 
+        WHERE numero_acta = %s AND id_curso = %s
+    """
+    cursor.execute(query, (numero_acta, id_curso))
+    return cursor.fetchone()
 
-def create_class_book(id_inscripcion, fecha_inicio):
-    """Crea un nuevo libro de clases."""
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO libros_clase (id_inscripcion, fecha_inicio)
-                VALUES (%s, %s)
-            """
-            cursor.execute(query, (id_inscripcion, fecha_inicio))
-            conn.commit()
-            return cursor.lastrowid
-        except Exception as e:
-            print(f"Error al crear libro de clases: {e}")
-            conn.rollback()
-            return None
-        finally:
-            cursor.close()
-            conn.close()
+def create_carpeta_libros(numero_acta, id_curso, fecha_inicio):
+    """Crea una nueva carpeta de libros si no existe"""
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        
+        # Verificar si el curso es de formación
+        cursor.execute("""
+            SELECT tipo_curso 
+            FROM cursos 
+            WHERE id_curso = %s 
+            AND tipo_curso = 'FORMACION'
+        """, (id_curso,))
+        
+        if not cursor.fetchone():
+            return False, "El curso debe ser de tipo FORMACION"
+        
+        # Verificar si ya existe la carpeta
+        carpeta = check_carpeta_exists(cursor, numero_acta, id_curso)
+        if carpeta:
+            return True, carpeta[0]  # Retorna el id_carpeta existente
+            
+        # Crear nueva carpeta
+        cursor.execute("""
+            INSERT INTO carpeta_libros (
+                numero_acta,
+                id_curso,
+                fecha_inicio,
+                estado
+            ) VALUES (%s, %s, %s, 'activo')
+        """, (numero_acta, id_curso, fecha_inicio))
+        
+        id_carpeta = cursor.lastrowid
+        conn.commit()
+        return True, id_carpeta
+        
+    except Exception as e:
+        return False, f"Error al crear carpeta: {str(e)}"
+    finally:
+        cursor.close()
+        conn.close()
 
-def add_weekly_content(id_libro, semana, fecha, contenido, observaciones=None):
-    """Agrega contenido semanal al libro de clases."""
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO contenidos_semanales 
-                (id_libro, semana, fecha, contenido_tratado, observaciones)
-                VALUES (%s, %s, %s, %s, %s)
-            """
-            cursor.execute(query, (id_libro, semana, fecha, contenido, observaciones))
-            conn.commit()
-            return cursor.lastrowid
-        except Exception as e:
-            print(f"Error al agregar contenido semanal: {e}")
-            conn.rollback()
-            return None
-        finally:
-            cursor.close()
-            conn.close()
+def fetch_carpetas_formacion(active_only=True):
+    """Obtiene las carpetas de libros de clase, filtrando por estado si es necesario."""
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        query = """
+            SELECT 
+                cl.id_carpeta,
+                cl.numero_acta,
+                cl.id_curso,
+                c.nombre_curso,
+                cl.fecha_inicio,
+                cl.fecha_termino,
+                cl.estado,
+                COUNT(DISTINCT a.rut) AS total_alumnos,
+                COUNT(DISTINCT l.id_libro) AS total_libros
+            FROM carpeta_libros cl
+            JOIN cursos c ON cl.id_curso = c.id_curso
+            LEFT JOIN inscripciones i ON cl.id_curso = i.id_curso
+            LEFT JOIN alumnos a ON i.id_alumno = a.rut
+            LEFT JOIN libros_clase l ON cl.id_carpeta = l.id_carpeta
+            {}
+            GROUP BY 
+                cl.id_carpeta, 
+                cl.numero_acta, 
+                cl.id_curso, 
+                c.nombre_curso, 
+                cl.fecha_inicio, 
+                cl.fecha_termino, 
+                cl.estado
+            ORDER BY cl.numero_acta ASC
+        """
+        if active_only:
+            query = query.format("WHERE cl.estado = 'activo'")
+        else:
+            query = query.format("")
+        cursor.execute(query)
+        return cursor.fetchall()
+    except Exception as e:
+        print(f"Error al obtener carpetas: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+    finally:
+        cursor.close()
+        conn.close()
 
-def register_attendance(id_contenido, asistencias):
-    """Registra la asistencia de los alumnos."""
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO asistencia_alumnos 
-                (id_contenido, id_alumno, estado_asistencia, observacion)
-                VALUES (%s, %s, %s, %s)
-            """
-            for asistencia in asistencias:
-                cursor.execute(query, (
-                    id_contenido,
-                    asistencia['id_alumno'],
-                    asistencia['estado'],
-                    asistencia.get('observacion')
-                ))
-            conn.commit()
-            return True
-        except Exception as e:
-            print(f"Error al registrar asistencia: {e}")
-            conn.rollback()
-            return False
-        finally:
-            cursor.close()
-            conn.close()
-
-def get_class_book_content(id_libro):
-    """Obtiene todo el contenido de un libro de clases."""
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                SELECT 
-                    cs.semana,
-                    cs.fecha,
-                    cs.contenido_tratado,
-                    cs.observaciones,
-                    aa.id_alumno,
-                    aa.estado_asistencia,
-                    aa.observacion
-                FROM contenidos_semanales cs
-                LEFT JOIN asistencia_alumnos aa ON cs.id_contenido = aa.id_contenido
-                WHERE cs.id_libro = %s
-                ORDER BY cs.semana, cs.fecha, aa.id_alumno
-            """
-            cursor.execute(query, (id_libro,))
-            return cursor.fetchall()
-        except Exception as e:
-            print(f"Error al obtener contenido del libro: {e}")
-            return []
-        finally:
-            cursor.close()
-            conn.close()
-    return []

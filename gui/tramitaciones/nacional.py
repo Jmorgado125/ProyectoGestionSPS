@@ -45,6 +45,38 @@ class TituloNacionalWindow(ttk.Frame):
         self.setup_ui()
         self.pack(fill='both', expand=True)
 
+    def setup_styles(self):
+        style = ttk.Style()
+        style.configure('Action.TButton',
+                font=('Helvetica', 10, 'bold'),
+                padding=(10, 5),
+                background='#00239c',
+                foreground='white',
+                relief='raised',  # Cambiado a raised para dar el efecto 3D
+                borderwidth=1)    # Añadido borde
+
+        style.map('Action.TButton',
+                    background=[('active', '#001970'),
+                            ('pressed', '#00239c')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')],
+                    relief=[('pressed', 'sunken')])  # Efecto presionado
+
+        style.configure('delete.TButton',
+                        font=('Helvetica', 10, 'bold'),
+                        padding=(10, 5),
+                        background='#b50707',
+                        foreground='white',
+                        relief='raised',  # Cambiado a raised para dar el efecto 3D
+                        borderwidth=1)    # Añadido borde
+
+        style.map('delete.TButton',
+                    background=[('active', '#990606'),
+                            ('pressed', '#b50707')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')],
+                    relief=[('pressed', 'sunken')])  # Efecto presionado
+
     def setup_ui(self):
         """Configura la interfaz gráfica de la ventana"""
         self.parent.title("Título Nacional - SPS")
@@ -65,7 +97,7 @@ class TituloNacionalWindow(ttk.Frame):
 
         ttk.Button(
             main_frame, 
-            text="Buscar", 
+            text="Buscar",style="Action.TButton", 
             command=self.cargar_datos_bd
         ).grid(row=0, column=2, padx=5, pady=5, sticky='w')
 
@@ -106,13 +138,13 @@ class TituloNacionalWindow(ttk.Frame):
 
         ttk.Button(
             btn_frame, 
-            text="Generar Documento",
+            text="Generar Documento",style="Action.TButton",
             command=self.generar_documento
         ).pack(side='right', padx=5)
 
         ttk.Button(
             btn_frame, 
-            text="Limpiar",
+            text="Limpiar",style="delete.TButton",
             command=self.limpiar_formulario
         ).pack(side='right', padx=5)
 

@@ -41,6 +41,38 @@ class MedicoInterWindow(ttk.Frame):
         self.setup_ui()
         self.pack(fill='both', expand=True)
 
+    def setup_styles(self):
+        style = ttk.Style()
+        style.configure('Action.TButton',
+                font=('Helvetica', 10, 'bold'),
+                padding=(10, 5),
+                background='#00239c',
+                foreground='white',
+                relief='raised',  # Cambiado a raised para dar el efecto 3D
+                borderwidth=1)    # Añadido borde
+
+        style.map('Action.TButton',
+                    background=[('active', '#001970'),
+                            ('pressed', '#00239c')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')],
+                    relief=[('pressed', 'sunken')])  # Efecto presionado
+
+        style.configure('delete.TButton',
+                        font=('Helvetica', 10, 'bold'),
+                        padding=(10, 5),
+                        background='#b50707',
+                        foreground='white',
+                        relief='raised',  # Cambiado a raised para dar el efecto 3D
+                        borderwidth=1)    # Añadido borde
+
+        style.map('delete.TButton',
+                    background=[('active', '#990606'),
+                            ('pressed', '#b50707')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')],
+                    relief=[('pressed', 'sunken')])  # Efecto presionado
+
     def setup_ui(self):
         self.parent.title("Documento Médico Internacional")
 
@@ -53,10 +85,11 @@ class MedicoInterWindow(ttk.Frame):
             row=0, column=1, padx=5, pady=5, sticky='w'
         )
 
-        # Botón "Buscar"
-        ttk.Button(main_frame, text="Buscar", command=self.cargar_datos_bd).grid(
-            row=0, column=2, padx=5, pady=5, sticky='w'
-        )
+        ttk.Button(
+            main_frame, 
+            text="Buscar",style="Action.TButton", 
+            command=self.cargar_datos_bd
+        ).grid(row=0, column=2, padx=5, pady=5, sticky='w')
 
         # Especialidad
         ttk.Label(main_frame, text="Especialidad:").grid(row=1, column=0, padx=5, pady=5, sticky='e')
@@ -83,10 +116,16 @@ class MedicoInterWindow(ttk.Frame):
         btn_frame = ttk.Frame(main_frame)
         btn_frame.grid(row=3, column=0, columnspan=3, pady=10, sticky='e')
 
-        ttk.Button(btn_frame, text="Generar Documento",
-                   command=self.generar_documento).pack(side='right', padx=5)
-        ttk.Button(btn_frame, text="Limpiar",
-                   command=self.limpiar_formulario).pack(side='right', padx=5)
+        ttk.Button(
+            btn_frame, 
+            text="Generar Documento",style="Action.TButton",
+            command=self.generar_documento
+        ).pack(side='right', padx=5)
+        ttk.Button(
+            btn_frame, 
+            text="Limpiar",style="delete.TButton",
+            command=self.limpiar_formulario
+        ).pack(side='right', padx=5)
 
     def cargar_datos_bd(self):
         """

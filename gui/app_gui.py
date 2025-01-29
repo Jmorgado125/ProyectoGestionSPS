@@ -2,19 +2,24 @@ import tkinter as tk
 from tkinter import ttk, messagebox,filedialog
 import os
 from PIL import Image, ImageTk
-from datetime import datetime
+from datetime import datetime , timedelta
 from database.db_config import connect_db
 from itertools import cycle  # <<--- Para el validador avanzado de RUT
 from .excel_export import ExcelExporter
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import base64
 import math
+import traceback
+import mysql
 from functools import wraps
-from tkcalendar import DateEntry
+from tkcalendar import DateEntry, Calendar
 from .cotizacion_window import CotizacionWindow
 from helpers.doc_generator import generate_pagare_docx
 from helpers.num_a_let import numero_a_letras
 from gui.tramitaciones.tramitacion import IntegratedTramitacionesFrame
+from gui.Libros import LibrosManager
+
+
 
 
 # ============================
@@ -81,8 +86,8 @@ from database.queries import (
     delete_student_by_rut,fetch_students_by_name_apellido,validate_alumno_exists,fetch_active_students,
 
     fetch_payments,insert_payment,fetch_payments_by_inscription,insert_payment_contribution,        #Pagos
-    update_payment_status,fetch_alumno_curso_inscripcion,fetch_cuotas_by_pago,register_quota_payment,
-    update_cuota,search_pagare_payments,fetch_pending_payments,
+    fetch_alumno_curso_inscripcion,fetch_cuotas_by_pago,register_quota_payment,
+    update_cuota,search_pagare_payments,fetch_pending_payments,register_contado_payment,
 
     insert_invoice,fetch_invoices,update_invoice_status,                                                                  #Facturas
     
@@ -96,9 +101,11 @@ from database.queries import (
     ,delete_contacto_empresa,format_empresa_data,
     fetch_empresa_by_id,save_empresa,save_contacto_empresa,
 
-    fetch_cotizaciones,
+    fetch_cotizaciones,                                                 #Cotizaciones   
 
     fetch_tramitaciones_by_rut,fetch_tramitaciones_activas,fetch_tramitaciones,fetch_tipos_tramite,  #Tramitaciones     
+
+    fetch_carpetas_formacion,create_carpeta_libros                                                 #Libros de Clase
 )
 
 
@@ -140,8 +147,8 @@ class App:
         self.root.deiconify()
 
         # 5. Mostramos directamente el LoginFrame (o la interfaz principal)
-        self.show_login_frame()
-        #self.setup_main_interface()
+        #self.show_login_frame()
+        self.setup_main_interface()
 
     def setup_styles(self):
         """
@@ -166,7 +173,7 @@ class App:
         style.configure("Treeview",
                         background="#ffffff",
                         foreground="black",
-                        rowheight=25,
+                        rowheight=30,
                         fieldbackground="#ffffff",
                         borderwidth=1,
                         font=('Segoe UI', 10))
@@ -345,12 +352,14 @@ class App:
         menubar.add_command(label="Alumnos", command=self.show_students)
         menubar.add_command(label="Inscripciones", command=self.show_inscriptions)
         menubar.add_command(label="Pagos", command=self.show_payments)
+        menubar.add_command(label="Historial", command=self.show_payment_history)
         menubar.add_command(label="Facturación", command=self.show_invoices)
         menubar.add_command(label="Cotizaciones", command=self.show_cotizaciones)
         menubar.add_command(label="Empresas", command=self.show_empresas)
         menubar.add_command(label="Alumnos Activos", command=self.show_active_students) 
         #   menubar.add_command(label="Cursos Activos", command=self.show_active_courses)
         menubar.add_command(label="Tramitaciones", command=self.show_tramitaciones)
+        menubar.add_command(label='Libros de Clase', command=self.show_carpetas)
         menubar.add_command(label='Tramitar', command=self.show_tramitar)
               
     def _clear_main_content(self):
@@ -1236,6 +1245,33 @@ class App:
             try:
                 fecha_inscripcion = datetime.strptime(fecha_actual, '%Y-%m-%d').date()
                 
+                # Si es curso de formación, verificar/crear carpeta de libros
+                conn = connect_db()
+                cursor = conn.cursor()
+                
+                cursor.execute("SELECT tipo_curso FROM cursos WHERE id_curso = %s", (id_curso,))
+                tipo_curso = cursor.fetchone()
+                
+                if tipo_curso and tipo_curso[0] == 'FORMACION':
+                    success, result = create_carpeta_libros(
+                        numero_acta=numero_acta,
+                        id_curso=id_curso,
+                        fecha_inicio=fecha_inscripcion
+                    )
+                    if not success:
+                        messagebox.showerror(
+                            "Error",
+                            f"No se pudo crear la carpeta de libros:\n{result}",
+                            parent=enroll_window
+                        )
+                        cursor.close()
+                        conn.close()
+                        return
+                
+                cursor.close()
+                conn.close()
+
+                # Ahora, proceder a inscribir al alumno
                 success, message = enroll_student(
                     id_alumno=rut,
                     id_curso=id_curso,
@@ -1280,7 +1316,7 @@ class App:
             width=15,
             command=save_enrollment
         ).pack()
- 
+
     #@requiere_rol_gui("admin")
     def delete_inscription_window(self):
         delete_window = tk.Toplevel(self.root)
@@ -1625,13 +1661,21 @@ class App:
             tree_frame.grid_rowconfigure(0, weight=1)
             tree_frame.grid_columnconfigure(0, weight=1)
 
+            # Configurar estilo para aumentar la altura de las filas
+            style = ttk.Style()
+            # Puedes cambiar "Custom.Course.Treeview" a cualquier nombre que desees
+            style.configure("Custom.Course.Treeview",
+                            rowheight=30,  # Ajusta este valor según tus necesidades
+                            font=('Helvetica', 9))  # Opcional: Ajusta el tamaño de la fuente
+            
             # Scrollbars
             vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
             hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
 
-            # Crear Treeview
+            # Crear Treeview con el estilo personalizado
             self.tree = ttk.Treeview(
                 tree_frame,
+                style="Custom.Course.Treeview",  # Aplica el estilo personalizado
                 selectmode="extended",
                 yscrollcommand=vscroll.set,
                 xscrollcommand=hscroll.set
@@ -1736,7 +1780,6 @@ class App:
 
         except Exception as e:
             print(f"Error al mostrar cursos: {e}")
-            import traceback
             traceback.print_exc()
     
     #@requiere_rol_gui("admin")
@@ -3146,14 +3189,14 @@ class App:
 
             ttk.Button(
                 button_frame,
-                text="Cambiar Estado",
+                text="Pago Contado",
                 command=self.update_payment_status_window,
                 style='Action.TButton'
             ).pack(side=tk.LEFT, padx=5)
 
             ttk.Button(
                 button_frame,
-                text="Gestionar Cuotas",
+                text="Pago Cuotas",
                 command=self.manage_cuotas_pagare_window,
                 style='Action.TButton'
             ).pack(side=tk.LEFT, padx=5)
@@ -3169,9 +3212,10 @@ class App:
             style.configure("Treeview",
                 background="#ffffff",
                 foreground="black",
-                rowheight=25,
+                rowheight=35,
                 fieldbackground="#ffffff"
             )
+            
             style.configure("Treeview.Heading",
                 background="#e1e1e1",
                 foreground="black",
@@ -3301,6 +3345,201 @@ class App:
 
         except Exception as e:
             print(f"Error al mostrar pagos: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def show_payment_history(self):
+        """Muestra el historial de pagos en el frame principal con scrollbars correctamente configuradas"""
+        try:
+            # Limpiar el contenido principal, similar a show_payments
+            self._clear_main_content()
+
+            # Actualizar el título
+            self._update_title_label("Historial de Pagos")
+
+            # Crear frame para el contenido principal
+            content_frame = ttk.Frame(self.main_frame)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+            # Frame de filtros en la parte superior
+            filter_frame = ttk.LabelFrame(content_frame, text="Filtros de Búsqueda", padding="5")
+            filter_frame.pack(fill=tk.X, padx=10, pady=5)
+
+            # Variables para filtros
+            mes_var = tk.StringVar()
+            fecha_var = tk.StringVar()
+            rut_var = tk.StringVar()
+
+            # Frame para los campos de filtro
+            fields_frame = ttk.Frame(filter_frame)
+            fields_frame.pack(fill=tk.X, expand=True, padx=5, pady=5)
+
+            # Campos de búsqueda
+            ttk.Label(fields_frame, text="Mes (MM/YYYY):").grid(row=0, column=0, padx=(0,10), pady=5, sticky='e')
+            ttk.Entry(fields_frame, textvariable=mes_var, width=15).grid(row=0, column=1, padx=5, pady=5, sticky='w')
+
+            ttk.Label(fields_frame, text="Fecha (DD/MM/YYYY):").grid(row=0, column=2, padx=(20,10), pady=5, sticky='e')
+            ttk.Entry(fields_frame, textvariable=fecha_var, width=15).grid(row=0, column=3, padx=5, pady=5, sticky='w')
+
+            ttk.Label(fields_frame, text="RUT:").grid(row=0, column=4, padx=(20,10), pady=5, sticky='e')
+            ttk.Entry(fields_frame, textvariable=rut_var, width=15).grid(row=0, column=5, padx=5, pady=5, sticky='w')
+
+            ttk.Button(fields_frame, text="Buscar", 
+                    command=lambda: self.load_history_data(mes_var, fecha_var, rut_var),
+                    style='Action.TButton').grid(row=0, column=6, padx=20, pady=5)
+
+            # Crear frame para el Treeview y las scrollbars
+            tree_frame = ttk.Frame(content_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True)
+
+            # Configurar columnas para el historial de pagos
+            columns = ('id_historial', 'fecha', 'tipo_pago', 'rut', 'alumno', 'monto', 'num_ingreso', 'detalle')
+            self.tree = ttk.Treeview(tree_frame, columns=columns, show='headings')
+
+            # Configurar encabezados
+            self.tree.heading('id_historial', text='ID')
+            self.tree.heading('fecha', text='Fecha')
+            self.tree.heading('tipo_pago', text='Tipo Pago')
+            self.tree.heading('rut', text='RUT')
+            self.tree.heading('alumno', text='Alumno')
+            self.tree.heading('monto', text='Valor')
+            self.tree.heading('num_ingreso', text='N° Ingreso')
+            self.tree.heading('detalle', text='Detalle')
+
+            # Configurar anchos de columna
+            self.tree.column('id_historial', width=50, anchor='center')
+            self.tree.column('fecha', width=150, anchor='center')
+            self.tree.column('tipo_pago', width=100, anchor='center')
+            self.tree.column('rut', width=120, anchor='center')
+            self.tree.column('alumno', width=200, anchor='w')
+            self.tree.column('monto', width=120, anchor='e')
+            self.tree.column('num_ingreso', width=120, anchor='center')
+            self.tree.column('detalle', width=250, anchor='w')
+
+            # Crear scrollbars vertical y horizontal
+            vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+            hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
+            self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+            # Colocar el Treeview y las scrollbars en el grid
+            self.tree.grid(row=0, column=0, sticky='nsew')
+            vsb.grid(row=0, column=1, sticky='ns')
+            hsb.grid(row=1, column=0, sticky='ew')
+
+            # Configurar el grid para que el Treeview se expanda correctamente
+            tree_frame.rowconfigure(0, weight=1)
+            tree_frame.columnconfigure(0, weight=1)
+
+            # Configurar colores para los diferentes tipos de pago
+            self.tree.tag_configure('PAGARE', background='#E8F4FF')  # Azul muy claro
+            self.tree.tag_configure('CONTADO', background='#F0FFF0')  # Verde muy claro
+
+            # Función para cargar datos del historial
+            def load_history_data(mes_var, fecha_var, rut_var):
+                """Carga el historial según los filtros"""
+                try:
+                    # Limpiar datos actuales
+                    for item in self.tree.get_children():
+                        self.tree.delete(item)
+
+                    query = """
+                        SELECT 
+                            id_historial,
+                            fecha_registro,
+                            tipo_pago,
+                            rut_alumno,
+                            nombre_alumno,
+                            monto,
+                            numero_ingreso,
+                            detalle
+                        FROM historial_pagos 
+                        WHERE 1=1
+                    """
+                    params = []
+
+                    if mes_var.get().strip():
+                        try:
+                            month, year = mes_var.get().strip().split('/')
+                            month = int(month)
+                            year = int(year)
+                            if not (1 <= month <= 12):
+                                raise ValueError
+                            query += " AND MONTH(fecha_registro) = %s AND YEAR(fecha_registro) = %s"
+                            params.extend([month, year])
+                        except ValueError:
+                            messagebox.showwarning("Advertencia", "Formato de mes inválido. Use MM/YYYY")
+                            return
+
+                    if fecha_var.get().strip():
+                        try:
+                            day, month, year = fecha_var.get().strip().split('/')
+                            # Validar fecha
+                            import datetime
+                            datetime.datetime(int(year), int(month), int(day))
+                            fecha = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+                            query += " AND DATE(fecha_registro) = %s"
+                            params.append(fecha)
+                        except (ValueError, OverflowError):
+                            messagebox.showwarning("Advertencia", "Formato de fecha inválido. Use DD/MM/YYYY")
+                            return
+
+                    if rut_var.get().strip():
+                        if not self.validar_rut(rut_var.get().strip()):
+                            messagebox.showwarning("Advertencia", "RUT inválido")
+                            return
+                        query += " AND rut_alumno = %s"
+                        params.append(rut_var.get().strip())
+
+                    query += " ORDER BY fecha_registro DESC"
+
+                    conn = connect_db()
+                    if not conn:
+                        messagebox.showerror("Error", "No se pudo conectar a la base de datos")
+                        return
+
+                    try:
+                        cursor = conn.cursor()
+                        cursor.execute(query, tuple(params))
+                        results = cursor.fetchall()
+
+                        for row in results:
+                            formatted_row = [
+                                row[0],                                            # id_historial
+                                row[1].strftime('%d/%m/%Y %H:%M') if row[1] else '',  # fecha_registro
+                                row[2].upper() if row[2] else '',                     # tipo_pago
+                                row[3] if row[3] else '',                            # rut_alumno
+                                row[4] if row[4] else '',                            # nombre_alumno
+                                f"${int(row[5]):,}" if row[5] else '$0',            # monto
+                                row[6] if row[6] else '',                            # numero_ingreso
+                                row[7] if row[7] else ''                             # detalle
+                            ]
+                            
+                            # Aplicar tag según el tipo de pago
+                            tag = 'PAGARE' if row[2].lower() == 'pagare' else 'CONTADO'
+                            self.tree.insert("", "end", values=formatted_row, tags=(tag,))
+
+                    except Exception as e:
+                        print(f"Error específico: {e}")
+                        messagebox.showerror("Error", f"Error al cargar datos: {str(e)}")
+                    finally:
+                        if cursor:
+                            cursor.close()
+                        if conn:
+                            conn.close()
+
+                except Exception as e:
+                    print(f"Error en load_history_data: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+            # Bind the load_history_data to the button
+            # Esto ya está hecho en el botón "Buscar" anteriormente
+
+            # Cargar datos iniciales
+            load_history_data(mes_var, fecha_var, rut_var)
+
+        except Exception as e:
+            print(f"Error al mostrar historial de pagos: {e}")
             import traceback
             traceback.print_exc()
 
@@ -3823,15 +4062,15 @@ class App:
 
     def update_payment_status_window(self):
         """
-        Ventana para actualizar el estado de pago con múltiples opciones de búsqueda
+        Ventana para registrar pagos al contado
         """
         update_window = tk.Toplevel(self.root)
-        update_window.title("Actualizar Estado de Pago")
+        update_window.title("Registrar Pago al Contado")
         update_window.grab_set()
         try:
             update_window.iconbitmap('assets/logo1.ico')
         except Exception as e:
-            print(f"Error al cargar ícono de la ventana: {e}")
+            print(f"Error al cargar ícono: {e}")
 
         # Configurar tamaño y posición
         window_width = 900
@@ -3840,15 +4079,13 @@ class App:
         y = (update_window.winfo_screenheight() - window_height) // 2
         update_window.geometry(f'{window_width}x{window_height}+{x}+{y}')
 
-        # Definir el estilo para los botones
+        # Estilo
         style = ttk.Style(update_window)
-        # Asegúrate de usar un tema que permita la personalización de los botones, como 'clam' o 'alt'
         style.theme_use('clam')  
         style.configure('Custom.TButton',
-                        background='#022e86',
-                        foreground='white',
-                        font=('Helvetica', 10, 'bold'))
-        # Opcional: cambiar el color cuando el botón está activo o al pasar el mouse
+                     background='#022e86',
+                     foreground='white',
+                     font=('Segoe UI', 10, 'bold'))
         style.map('Custom.TButton',
                 background=[('active', '#021f5e')],
                 foreground=[('active', 'white')])
@@ -3857,23 +4094,23 @@ class App:
         main_frame = ttk.Frame(update_window, padding="10")
         main_frame.grid(row=0, column=0, sticky="nsew")
 
-        # Título (opcional)
+        # Título
         title_label = ttk.Label(
             main_frame,
-            text="Actualizar Estado de Pago",
-            font=("Helvetica", 16, "bold"),
+            text="Registrar Pago al Contado",
+            font=("Segoe UI", 16, "bold"),
             foreground="#022e86"
         )
         title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
 
         # Frame de búsqueda
-        search_frame = ttk.LabelFrame(main_frame, text="Opciones de Búsqueda", padding="5")
+        search_frame = ttk.LabelFrame(main_frame, text="Buscar Pagos Pendientes", padding="5")
         search_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
 
         # Variables para criterios de búsqueda
         search_type = tk.StringVar(value="rut")
         
-        # Radio buttons para tipo de búsqueda
+        # Radio buttons
         ttk.Radiobutton(search_frame, text="RUT", variable=search_type, 
                     value="rut", command=lambda: toggle_search_fields("rut")).grid(row=0, column=0, padx=5)
         ttk.Radiobutton(search_frame, text="ID Inscripción", variable=search_type, 
@@ -3886,19 +4123,16 @@ class App:
         fields_frame.grid(row=1, column=0, columnspan=4, pady=5)
 
         # Campos de búsqueda
-        # RUT
         rut_frame = ttk.Frame(fields_frame)
         ttk.Label(rut_frame, text="RUT:").pack(side="left", padx=5)
         rut_entry = ttk.Entry(rut_frame, width=15)
         rut_entry.pack(side="left", padx=5)
 
-        # ID Inscripción
         id_frame = ttk.Frame(fields_frame)
         ttk.Label(id_frame, text="ID Inscripción:").pack(side="left", padx=5)
         id_entry = ttk.Entry(id_frame, width=10)
         id_entry.pack(side="left", padx=5)
 
-        # Nombre y Apellido
         nombre_frame = ttk.Frame(fields_frame)
         ttk.Label(nombre_frame, text="Nombre:").pack(side="left", padx=5)
         nombre_entry = ttk.Entry(nombre_frame, width=15)
@@ -3907,8 +4141,44 @@ class App:
         apellido_entry = ttk.Entry(nombre_frame, width=15)
         apellido_entry.pack(side="left", padx=5)
 
+        ttk.Button(search_frame, text="Buscar", command=lambda: search_payments(), 
+                  style='Custom.TButton').grid(row=1, column=3, padx=5, pady=5)
+
+        # Tabla de resultados
+        table_frame = ttk.Frame(main_frame)
+        table_frame.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+
+        columns = ("ID Pago", "N° Acta", "RUT", "Alumno", "Curso", "Valor", "F. Inscripción")
+        payment_table = ttk.Treeview(table_frame, columns=columns, show='headings', height=10)
+
+        widths = {
+            "ID Pago": 80, "N° Acta": 100, "RUT": 100, "Alumno": 200,
+            "Curso": 200, "Valor": 100, "F. Inscripción": 100
+        }
+        for col in columns:
+            payment_table.heading(col, text=col)
+            payment_table.column(col, width=widths[col])
+
+        payment_table.grid(row=0, column=0, sticky="nsew")
+        ttk.Scrollbar(table_frame, orient="vertical", 
+                     command=payment_table.yview).grid(row=0, column=1, sticky="ns")
+        ttk.Scrollbar(table_frame, orient="horizontal",
+                     command=payment_table.xview).grid(row=1, column=0, sticky="ew")
+
+        # Frame para botón de registro
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=10)
+
+        ttk.Button(button_frame, text="Registrar Pago",
+                  command=lambda: register_selected_payment(),
+                  style='Custom.TButton').pack(side='left', padx=5)
+        
+        ttk.Button(button_frame, text="Cerrar",
+                  command=update_window.destroy,
+                  style='Custom.TButton').pack(side='right', padx=5)
+
         def toggle_search_fields(search_mode):
-            """Muestra/oculta campos según el tipo de búsqueda seleccionado"""
+            """Muestra/oculta campos según el tipo de búsqueda"""
             rut_frame.pack_forget()
             id_frame.pack_forget()
             nombre_frame.pack_forget()
@@ -3920,46 +4190,8 @@ class App:
             else:
                 nombre_frame.pack(side="left")
 
-        # Mostrar inicialmente el campo de RUT
-        toggle_search_fields("rut")
-
-        # Tabla de resultados
-        table_frame = ttk.Frame(main_frame)
-        table_frame.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
-
-        columns = ("ID Pago", "N° Acta", "RUT", "Alumno", "Curso", "Valor", "Estado Actual", "F. Inscripción")
-        payment_table = ttk.Treeview(table_frame, columns=columns, show='headings', height=10)
-
-        # Configurar columnas
-        widths = {
-            "ID Pago": 80, "N° Acta": 100, "RUT": 100, "Alumno": 200,
-            "Curso": 200, "Valor": 100, "Estado Actual": 100, "F. Inscripción": 100
-        }
-        for col in columns:
-            payment_table.heading(col, text=col)
-            payment_table.column(col, width=widths[col])
-
-        # Scrollbars
-        y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=payment_table.yview)
-        x_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=payment_table.xview)
-        payment_table.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
-
-        payment_table.grid(row=0, column=0, sticky="nsew")
-        y_scroll.grid(row=0, column=1, sticky="ns")
-        x_scroll.grid(row=1, column=0, sticky="ew")
-
-        # Frame para actualización
-        update_frame = ttk.LabelFrame(main_frame, text="Actualizar Estado", padding="5")
-        update_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
-
-        ttk.Label(update_frame, text="Nuevo Estado:").grid(row=0, column=0, padx=5, pady=5)
-        estado_combo = ttk.Combobox(update_frame, values=["pendiente", "pagado", "cancelado"], 
-                                state="readonly", width=15)
-        estado_combo.grid(row=0, column=1, padx=5, pady=5)
-
         def search_payments():
-            """Busca pagos según el criterio seleccionado"""
-            # Limpiar tabla
+            """Busca pagos pendientes al contado"""
             for item in payment_table.get_children():
                 payment_table.delete(item)
 
@@ -3973,22 +4205,25 @@ class App:
                 search_criteria = search_type.get()
                 
                 base_query = """
-                    SELECT p.id_pago, i.numero_acta, a.rut,
+                    SELECT 
+                        p.id_pago, i.numero_acta, a.rut,
                         CONCAT(a.nombre, ' ', a.apellido) as alumno,
-                        c.nombre_curso, p.valor_total, p.estado,
+                        c.nombre_curso, p.valor_total,
                         p.fecha_inscripcion
                     FROM pagos p
                     JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
                     JOIN alumnos a ON i.id_alumno = a.rut
                     JOIN cursos c ON i.id_curso = c.id_curso
-                    WHERE {}
+                    WHERE p.tipo_pago = 'contado' 
+                    AND p.estado = 'pendiente'
+                    AND {}
                     ORDER BY p.fecha_inscripcion DESC
                 """
 
                 if search_criteria == "rut":
                     rut = rut_entry.get().strip()
                     if not validar_rut(rut):
-                        messagebox.showerror("Error", "RUT inválido")
+                        messagebox.showerror("Error", "RUT inválido", parent=update_window)
                         return
                     query = base_query.format("a.rut = %s")
                     cursor.execute(query, (rut,))
@@ -3996,16 +4231,18 @@ class App:
                 elif search_criteria == "id":
                     inscription_id = id_entry.get().strip()
                     if not inscription_id.isdigit():
-                        messagebox.showerror("Error", "ID de inscripción inválido")
+                        messagebox.showerror("Error", "ID de inscripción inválido", parent=update_window)
                         return
                     query = base_query.format("i.id_inscripcion = %s")
                     cursor.execute(query, (inscription_id,))
 
-                else:  # búsqueda por nombre y apellido
+                else:
                     nombre = nombre_entry.get().strip()
                     apellido = apellido_entry.get().strip()
                     if not nombre and not apellido:
-                        messagebox.showwarning("Advertencia", "Ingrese al menos un nombre o apellido")
+                        messagebox.showwarning("Advertencia", 
+                                             "Ingrese al menos un nombre o apellido",
+                                             parent=update_window)
                         return
                     conditions = []
                     params = []
@@ -4021,10 +4258,10 @@ class App:
                 results = cursor.fetchall()
 
                 if not results:
-                    messagebox.showinfo("Información", "No se encontraron pagos")
+                    messagebox.showinfo("Información", "No se encontraron pagos pendientes",
+                                      parent=update_window)
                     return
 
-                # Insertar resultados en la tabla
                 for row in results:
                     formatted_row = [
                         row[0],  # ID Pago
@@ -4033,56 +4270,112 @@ class App:
                         row[3],  # Alumno
                         row[4],  # Curso
                         f"${row[5]:,.0f}",  # Valor Total
-                        row[6].upper(),  # Estado
-                        row[7].strftime('%Y-%m-%d')  # Fecha Inscripción
+                        row[6].strftime('%Y-%m-%d')  # Fecha Inscripción
                     ]
                     payment_table.insert('', 'end', values=formatted_row)
 
             except Exception as e:
-                messagebox.showerror("Error", f"Error al buscar pagos: {str(e)}")
+                messagebox.showerror("Error", f"Error al buscar pagos: {str(e)}", parent=update_window)
             finally:
-                cursor.close()
-                conn.close()
+                if cursor:
+                    cursor.close()
+                if conn:
+                    conn.close()
 
-        def update_selected_payment():
-            """Actualiza el estado del pago seleccionado"""
+        def show_success_message(alumno, valor):
+            """
+            Muestra ventana emergente con detalles del pago al contado registrado
+            """
+            success_window = tk.Toplevel()
+            success_window.title("¡Pago Registrado!")
+            
+            # Configurar ícono
+            try:
+                success_window.iconbitmap('assets/logo1.ico')
+            except Exception as e:
+                print(f"Error al cargar ícono: {e}")
+            
+            # Configurar ventana
+            success_window.configure(bg='white')
+            width = 350
+            height = 200
+            
+            # Obtener dimensiones de la pantalla
+            screen_width = success_window.winfo_screenwidth()
+            screen_height = success_window.winfo_screenheight()
+            
+            # Calcular posición para centrar
+            x = (screen_width - width) // 2
+            y = (screen_height - height) // 2
+            
+            success_window.geometry(f'{width}x{height}+{x}+{y}')
+            success_window.resizable(False, False)
+            success_window.grab_set()
+
+            # Frame principal con fondo blanco
+            frame = tk.Frame(success_window, bg='white', padx=20, pady=20)
+            frame.pack(fill='both', expand=True)
+
+            # Mensajes
+            tk.Label(frame,
+                    text="¡Pago al Contado Registrado!",
+                    font=('Segoe UI', 12, 'bold'),
+                    fg='#0056b3',
+                    bg='white').pack(pady=(0, 15))
+            
+            tk.Label(frame,
+                    text=f"Valor Total: ${valor:,.0f}",
+                    font=('Segoe UI', 11),
+                    bg='white').pack(pady=2)
+                    
+            tk.Label(frame,
+                    text=f"por el alumno {alumno}",
+                    font=('Segoe UI', 11),
+                    bg='white').pack(pady=2)
+
+            # Botón Aceptar
+            ttk.Button(frame,
+                    text="Aceptar",
+                    command=success_window.destroy,
+                    style='Custom.TButton').pack(pady=(15, 0))
+
+        def register_selected_payment():
+            """Registra el pago al contado seleccionado"""
             selection = payment_table.selection()
             if not selection:
-                messagebox.showwarning("Advertencia", "Por favor seleccione un pago")
-                return
-
-            nuevo_estado = estado_combo.get()
-            if not nuevo_estado:
-                messagebox.showwarning("Advertencia", "Por favor seleccione el nuevo estado")
+                messagebox.showwarning("Advertencia", "Seleccione un pago para registrar",
+                                    parent=update_window)
                 return
 
             payment_id = payment_table.item(selection[0])['values'][0]
-            current_status = payment_table.item(selection[0])['values'][6].lower()
-
-            # Validar cambio de estado
-            if current_status == nuevo_estado:
-                messagebox.showinfo("Información", "El pago ya tiene ese estado")
-                return
-
-            # Confirmar acción
+            
+            # Confirmar
             if not messagebox.askyesno("Confirmar", 
-                f"¿Está seguro de cambiar el estado del pago a {nuevo_estado.upper()}?"):
+                                    "¿Desea registrar este pago como pagado?",
+                                    parent=update_window):
                 return
 
-            # Actualizar estado
-            if update_payment_status(payment_id, nuevo_estado):
-                messagebox.showinfo("Éxito", "Estado actualizado correctamente")
-                self.show_payments()  # Actualizar la tabla
+            # Registrar pago
+            success = register_contado_payment(payment_id)
+            
+            if success:
+                # Obtener datos para mensaje
+                datos = payment_table.item(selection[0])['values']
+                alumno = datos[3]  # Nombre del alumno
+                valor = float(datos[5].replace('$', '').replace(',', ''))
+                
+                # Mostrar mensaje de éxito con formato de pago al contado
+                show_success_message(alumno, valor)
+                
+                # Actualizar interfaces
+                self.show_payments()
             else:
-                messagebox.showerror("Error", "No se pudo actualizar el estado")
+                messagebox.showerror("Error", "No se pudo registrar el pago",
+                                parent=update_window)
 
-        # Botones con el estilo personalizado
-        ttk.Button(search_frame, text="Buscar", command=search_payments, style='Custom.TButton').grid(
-            row=1, column=3, padx=5, pady=5)
-        ttk.Button(update_frame, text="Actualizar Estado", command=update_selected_payment, style='Custom.TButton').grid(
-            row=0, column=2, padx=5)
-        ttk.Button(main_frame, text="Cerrar", command=update_window.destroy, style='Custom.TButton').grid(
-            row=4, column=0, sticky="e", padx=5, pady=10)
+        # Mostrar campo RUT inicial y dar foco
+        toggle_search_fields("rut")
+        rut_entry.focus()
 
         # Binds para tecla Enter
         rut_entry.bind('<Return>', lambda e: search_payments())
@@ -4090,30 +4383,14 @@ class App:
         nombre_entry.bind('<Return>', lambda e: search_payments())
         apellido_entry.bind('<Return>', lambda e: search_payments())
 
-        # Configuración de grid weights
-        update_window.grid_columnconfigure(0, weight=1)
-        update_window.grid_rowconfigure(0, weight=1)
-        main_frame.grid_columnconfigure(0, weight=1)
-        main_frame.grid_rowconfigure(2, weight=1)  # Ajustar para que la tabla expanda
-        table_frame.grid_columnconfigure(0, weight=1)
-        table_frame.grid_rowconfigure(0, weight=1)
-
     def manage_cuotas_pagare_window(self):
         """
-        Ventana para:
-        1) Buscar pagos con tipo_pago='pagare' (ya sea pendientes, pagados parcialmente, etc.)
-        por ID Inscripción, RUT Alumno o ID Pago.
-        2) Mostrar esos pagos en un Treeview reducido.
-        3) Al seleccionar uno, mostrar sus cuotas (multiselección para pagar varias a la vez).
-        4) Posibilidad de actualizar valor/fecha de vencimiento de una cuota.
-        5) Mostrar relación “Cuotas Pagadas / Total”.
+        Ventana para gestionar cuotas de pagaré con interfaz mejorada
         """
-
-        # --- CREACIÓN DE VENTANA ---
         window = tk.Toplevel(self.root)
-        window.title("Administrar Cuotas - Pagare")
+        window.title("Administrar Cuotas - Pagaré")
         window.configure(bg="#f0f5ff")
-        window.state("zoomed")  # Maximizada por defecto
+        window.state("zoomed")
         window.grab_set()
         window.focus_force()
 
@@ -4122,158 +4399,228 @@ class App:
         except Exception as e:
             print(f"Error al cargar ícono: {e}")
 
-        # --- ESTILO DE BOTONES ---
+        # --- ESTILO MEJORADO ---
         style = ttk.Style(window)
         style.theme_use('clam')
         style.configure('Custom.TButton',
-                        background='#022e86',
-                        foreground='white',
-                        font=('Helvetica', 10, 'bold'))
+                       background='#0056b3',
+                       foreground='white',
+                       padding=6,
+                       font=('Segoe UI', 10, 'bold'))
         style.map('Custom.TButton',
-                background=[('active', '#021f5e')],
-                foreground=[('active', 'white')])
+                 background=[('active', '#004494')],
+                 foreground=[('active', 'white')])
+        
+        style.configure('Custom.Treeview',
+                       background='white',
+                       fieldbackground='white',
+                       rowheight=30)
+        style.map('Custom.Treeview',
+                 background=[('selected', '#0056b3')],
+                 foreground=[('selected', 'white')])
 
         # --- FRAME PRINCIPAL ---
-        main_frame = ttk.Frame(window, padding="10")
+        main_frame = ttk.Frame(window, padding="20")
         main_frame.pack(fill='both', expand=True)
 
-        # ----------------------------------------------------------------
-        # 1) FRAME DE BÚSQUEDA
-        # ----------------------------------------------------------------
-        search_frame = ttk.LabelFrame(main_frame, text="Buscar Pagos (Tipo: Pagaré)", padding="10")
-        search_frame.pack(fill='x')
+        # --- FRAME DE BÚSQUEDA ---
+        search_frame = ttk.LabelFrame(main_frame, text="Buscar Pagos (Tipo: Pagaré)", padding="15")
+        search_frame.pack(fill='x', padx=5, pady=(0, 10))
 
-        # Radio para seleccionar el tipo de búsqueda
         search_type = tk.StringVar(value="rut")
-        ttk.Radiobutton(search_frame, text="Por RUT Alumno", variable=search_type, value="rut").pack(side='left', padx=5)
-        ttk.Radiobutton(search_frame, text="Por ID Inscripción", variable=search_type, value="inscripcion").pack(side='left', padx=5)
-        ttk.Radiobutton(search_frame, text="Por ID Pago", variable=search_type, value="pago").pack(side='left', padx=5)
+        for text, val in [("Por RUT Alumno", "rut"), 
+                         ("Por ID Inscripción", "inscripcion"),
+                         ("Por ID Pago", "pago")]:
+            ttk.Radiobutton(search_frame, text=text, variable=search_type, 
+                           value=val).pack(side='left', padx=10)
 
-        # Campo de búsqueda + Botón
         search_var = tk.StringVar()
-        search_entry = ttk.Entry(search_frame, textvariable=search_var, width=15)
-        search_entry.pack(side='left', padx=10)
+        ttk.Entry(search_frame, textvariable=search_var, width=20,
+                 font=('Segoe UI', 10)).pack(side='left', padx=15)
+        ttk.Button(search_frame, text="Buscar", command=lambda: do_search(),
+                  style='Custom.TButton').pack(side='left')
 
-        ttk.Button(search_frame, text="Buscar", command=lambda: do_search(), style='Custom.TButton').pack(side='left', padx=5)
+        # --- FRAME DE PAGOS ---
+        pagos_frame = ttk.LabelFrame(main_frame, text="Pagos Encontrados", padding="15")
+        pagos_frame.pack(fill='x', padx=5, pady=(0, 10))
 
-        # ----------------------------------------------------------------
-        # 2) FRAME PARA LISTA DE PAGOS
-        # ----------------------------------------------------------------
-        pagos_frame = ttk.LabelFrame(main_frame, text="Pagos Encontrados", padding="10")
-        pagos_frame.pack(fill='x', padx=5, pady=(10, 5))
-
-        # Definimos columnas con nombres amigables
         pagos_columns = ("ID Pago", "ID Insc", "Alumno", "N° Acta", "Valor", "Estado")
-        pagos_tree = ttk.Treeview(pagos_frame, columns=pagos_columns, show="headings", height=3)
+        pagos_tree = ttk.Treeview(pagos_frame, columns=pagos_columns, 
+                                 show="headings", height=3, style='Custom.Treeview')
 
         for col in pagos_columns:
             pagos_tree.heading(col, text=col)
             pagos_tree.column(col, width=110, anchor=tk.CENTER)
 
-        scroll_pagos = ttk.Scrollbar(pagos_frame, orient="vertical", command=pagos_tree.yview)
-        pagos_tree.configure(yscrollcommand=scroll_pagos.set)
-
         pagos_tree.pack(side='left', fill='x', expand=True)
-        scroll_pagos.pack(side='right', fill='y')
+        ttk.Scrollbar(pagos_frame, orient="vertical",
+                     command=pagos_tree.yview).pack(side='right', fill='y')
 
-        # ----------------------------------------------------------------
-        # 3) FRAME PARA LISTA DE CUOTAS + Acciones a la derecha
-        # ----------------------------------------------------------------
-        middle_frame = ttk.Frame(main_frame)
-        middle_frame.pack(fill='both', expand=True)
+        # --- FRAME DE CUOTAS Y ACCIONES ---
+        cuotas_main_frame = ttk.Frame(main_frame)
+        cuotas_main_frame.pack(fill='both', expand=True, pady=(0, 5))
 
-        # Frame de las cuotas a la izquierda
-        cuotas_frame = ttk.LabelFrame(middle_frame, text="Cuotas del Pago Seleccionado", padding="10")
-        cuotas_frame.pack(side='left', fill='both', expand=True, padx=5, pady=5)
+        # Frame izquierdo (cuotas)
+        cuotas_frame = ttk.LabelFrame(cuotas_main_frame, text="Cuotas del Pago", padding="15")
+        cuotas_frame.pack(side='left', fill='both', expand=True, padx=(5, 10))
 
-        cuotas_columns = ("N° Cuota", "Valor Cuota", "Vence", "F. Pago", "Estado Cuota")
-        cuotas_tree = ttk.Treeview(cuotas_frame, columns=cuotas_columns, show='headings', selectmode='extended')
+        cuotas_columns = ("N° Cuota", "Valor Cuota", "Vence", "F. Pago", 
+                         "Estado Cuota", "N° Ingreso")
+        cuotas_tree = ttk.Treeview(cuotas_frame, columns=cuotas_columns,
+                                  show='headings', selectmode='extended',
+                                  style='Custom.Treeview')
 
         col_widths = {
             "N° Cuota": 80,
-            "Valor Cuota": 100,
-            "Vence": 100,
-            "F. Pago": 100,
-            "Estado Cuota": 100
+            "Valor Cuota": 120,
+            "Vence": 120,
+            "F. Pago": 120,
+            "Estado Cuota": 120,
+            "N° Ingreso": 120
         }
+        
         for col in cuotas_columns:
             cuotas_tree.heading(col, text=col)
             cuotas_tree.column(col, width=col_widths[col], anchor=tk.CENTER)
 
-        scroll_cuotas = ttk.Scrollbar(cuotas_frame, orient='vertical', command=cuotas_tree.yview)
-        cuotas_tree.configure(yscrollcommand=scroll_cuotas.set)
-
         cuotas_tree.pack(side='left', fill='both', expand=True)
-        scroll_cuotas.pack(side='right', fill='y')
+        ttk.Scrollbar(cuotas_frame, orient='vertical',
+                     command=cuotas_tree.yview).pack(side='right', fill='y')
 
-        # Frame de acciones a la derecha
-        action_frame = ttk.LabelFrame(middle_frame, text="Acciones sobre Cuotas", padding="10")
-        action_frame.pack(side='right', fill='y', padx=5, pady=5)
+        # Frame derecho (acciones)
+        action_frame = ttk.LabelFrame(cuotas_main_frame, text="Acciones", padding="15")
+        action_frame.pack(side='right', fill='y', padx=(0, 5))
 
-        # Variables para edición
+        # Variables
         selected_cuota_id = tk.IntVar(value=0)
         nro_cuota_var = tk.StringVar()
         valor_cuota_var = tk.StringVar()
         fecha_venc_var = tk.StringVar()
         cuotas_info_label_var = tk.StringVar(value="Cuotas Pagadas: 0 / 0")
 
-        # Campos de edición de una cuota
-        ttk.Label(action_frame, text="ID Cuota (oculto):").grid(row=0, column=0, padx=5, pady=5, sticky='e')
-        ttk.Entry(action_frame, textvariable=selected_cuota_id, width=6, state='readonly').grid(row=0, column=1, padx=5, pady=5, sticky='w')
+        # Campos de edición
+        fields = [
+            ("ID Cuota:", selected_cuota_id, 6, 'readonly'),
+            ("N° Cuota:", nro_cuota_var, 6, 'readonly'),
+            ("Valor:", valor_cuota_var, 12, 'normal'),
+            ("Vence:", fecha_venc_var, 12, 'normal')
+        ]
 
-        ttk.Label(action_frame, text="N° Cuota:").grid(row=1, column=0, padx=5, pady=5, sticky='e')
-        ttk.Entry(action_frame, textvariable=nro_cuota_var, width=6, state='readonly').grid(row=1, column=1, padx=5, pady=5, sticky='w')
+        for row, (label, var, width, state) in enumerate(fields):
+            ttk.Label(action_frame, text=label).grid(row=row, column=0, 
+                                                   padx=5, pady=8, sticky='e')
+            ttk.Entry(action_frame, textvariable=var, width=width,
+                     state=state).grid(row=row, column=1, padx=5, sticky='w')
 
-        ttk.Label(action_frame, text="Valor:").grid(row=2, column=0, padx=5, pady=5, sticky='e')
-        ttk.Entry(action_frame, textvariable=valor_cuota_var, width=10).grid(row=2, column=1, padx=5, pady=5, sticky='w')
+        # Botones de acción
+        ttk.Button(action_frame, text="Pagar Seleccionadas",
+                  command=lambda: pay_selected_cuotas(),
+                  style='Custom.TButton').grid(row=5, column=0, columnspan=2,
+                                             pady=10, sticky='ew')
 
-        ttk.Label(action_frame, text="Vence (YYYY-MM-DD):").grid(row=3, column=0, padx=5, pady=5, sticky='e')
-        ttk.Entry(action_frame, textvariable=fecha_venc_var, width=12).grid(row=3, column=1, padx=5, pady=5, sticky='w')
+        ttk.Button(action_frame, text="Actualizar Cuota",
+                  command=lambda: update_selected_cuota(),
+                  style='Custom.TButton').grid(row=6, column=0, columnspan=2,
+                                             pady=5, sticky='ew')
 
-        # Botones
-        btn_cargar = ttk.Button(action_frame, text="Cargar Cuotas", command=lambda: load_cuotas_for_payment(), style='Custom.TButton')
-        btn_cargar.grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        ttk.Label(action_frame, textvariable=cuotas_info_label_var,
+                 font=('Segoe UI', 10, 'bold')).grid(row=7, column=0,
+                                                    columnspan=2, pady=15)
 
-        btn_pagar = ttk.Button(action_frame, text="Pagar Seleccionadas", command=lambda: pay_selected_cuotas(), style='Custom.TButton')
-        btn_pagar.grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        def show_success_message(nro_cuota, valor, alumno, num_ingreso):
+            """Muestra mensaje de éxito con detalles de la cuota"""
+            success_window = tk.Toplevel(window)
+            success_window.title("¡Cuota Pagada!")
+            
+            # Configurar ícono
+            try:
+                success_window.iconbitmap('assets/logo1.ico')
+            except Exception as e:
+                print(f"Error al cargar ícono: {e}")
+            
+            # Configurar ventana
+            success_window.configure(bg='white')  # Fondo blanco
+            width = 350
+            height = 250
+            
+            # Obtener dimensiones de la pantalla
+            screen_width = success_window.winfo_screenwidth()
+            screen_height = success_window.winfo_screenheight()
+            
+            # Calcular posición para centrar
+            x = (screen_width - width) // 2
+            y = (screen_height - height) // 2
+            
+            success_window.geometry(f'{width}x{height}+{x}+{y}')
+            success_window.resizable(False, False)
+            success_window.grab_set()
 
-        btn_actualizar = ttk.Button(action_frame, text="Actualizar Seleccionada", command=lambda: update_selected_cuota(), style='Custom.TButton')
-        btn_actualizar.grid(row=6, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+            # Frame principal con fondo blanco
+            frame = ttk.Frame(success_window)
+            frame.pack(fill='both', expand=True)
+            
+            # Contenedor del mensaje con fondo blanco
+            msg_container = tk.Frame(frame, bg='white', padx=20, pady=20)
+            msg_container.pack(fill='both', expand=True)
 
-        ttk.Label(action_frame, textvariable=cuotas_info_label_var, foreground="#022e86", font=('Helvetica', 10, 'bold')).grid(row=7, column=0, columnspan=2, padx=5, pady=(10, 5))
+            # Mensajes con fondo blanco y fuente personalizada
+            tk.Label(msg_container,
+                    text="¡Cuota Pagada Con Éxito!",
+                    font=('Segoe UI', 12, 'bold'),
+                    fg='#0056b3',
+                    bg='white').pack(pady=(0, 15))
+            
+            tk.Label(msg_container,
+                    text=f"Cuota {nro_cuota} de ${valor:,.0f}",
+                    font=('Segoe UI', 11),
+                    bg='white').pack(pady=2)
+                    
+            tk.Label(msg_container,
+                    text=f"por el alumno {alumno}",
+                    font=('Segoe UI', 11),
+                    bg='white').pack(pady=2)
+                    
+            tk.Label(msg_container,
+                    text=f"[N° Ingreso {num_ingreso}]",
+                    font=('Segoe UI', 11),
+                    bg='white').pack(pady=2)
 
-        # ----------------------------------------------------------------
-        # FUNCIONES
-        # ----------------------------------------------------------------
+            # Frame para el botón con fondo blanco
+            button_frame = tk.Frame(msg_container, bg='white')
+            button_frame.pack(pady=(15, 0))
+
+            # Botón personalizado
+            ttk.Button(button_frame,
+                    text="Aceptar",
+                    command=success_window.destroy,
+                    style='Custom.TButton').pack()
         def do_search():
-            """
-            Busca pagos con tipo_pago='pagare', sin importar estado, y filtra
-            por RUT/ID Insc/ID Pago, llenando el TreeView de pagos.
-            """
-            # Limpiar
-            for item in pagos_tree.get_children():
-                pagos_tree.delete(item)
-            for item in cuotas_tree.get_children():
-                cuotas_tree.delete(item)
+            """Busca pagos según criterio seleccionado"""
+            # Limpiar árboles
+            for tree in [pagos_tree, cuotas_tree]:
+                for item in tree.get_children():
+                    tree.delete(item)
 
             val = search_var.get().strip()
             if not val:
-                messagebox.showwarning("Atención", "Ingrese un valor de búsqueda.", parent=window)
+                messagebox.showwarning("Atención", 
+                                     "Ingrese un valor de búsqueda.",
+                                     parent=window)
                 return
 
             results = search_pagare_payments(search_type.get(), val)
             if not results:
-                messagebox.showinfo("Información", "No se encontraron pagos con ese criterio.", parent=window)
+                messagebox.showinfo("Información",
+                                  "No se encontraron pagos con ese criterio.",
+                                  parent=window)
                 return
 
             for row in results:
                 pagos_tree.insert("", "end", values=row)
 
         def load_cuotas_for_payment():
-            """
-            Carga las cuotas del pago seleccionado en cuotas_tree.
-            """
-            # Limpiar cuotas
+            """Carga las cuotas del pago seleccionado"""
+            # Limpiar árbol de cuotas
             for item in cuotas_tree.get_children():
                 cuotas_tree.delete(item)
 
@@ -4282,8 +4629,7 @@ class App:
                 return
             
             row_values = pagos_tree.item(selection[0], 'values')
-            # row_values -> (ID Pago, ID Insc, Alumno, N° Acta, Valor, Estado)
-            id_pago = row_values[0]  # Se asume que la primera col. es 'ID Pago'
+            id_pago = row_values[0]
 
             cuota_list = fetch_cuotas_by_pago(id_pago)
             if not cuota_list:
@@ -4294,16 +4640,18 @@ class App:
             cuotas_pagadas = sum(1 for c in cuota_list if c[6] == 'pagada')
 
             for c in cuota_list:
-                """
-                c: (id_cuota, id_pago, nro_cuota, valor_cuota, fecha_venc, fecha_pago, estado_cuota)
-                """
+                # c: (id_cuota, id_pago, nro_cuota, valor_cuota, fecha_venc, 
+                #     fecha_pago, estado_cuota, numero_ingreso)
                 nro = c[2]
-                val = c[3]
+                val = f"{c[3]:,.0f}"
                 fven = c[4].strftime("%Y-%m-%d") if c[4] else ""
                 fpag = c[5].strftime("%Y-%m-%d") if c[5] else ""
                 est = c[6]
+                n_ing = c[7] if c[7] else ""
 
-                cuotas_tree.insert("", "end", values=(nro, val, fven, fpag, est), tags=(str(c[0]),))
+                cuotas_tree.insert("", "end", 
+                                 values=(nro, val, fven, fpag, est, n_ing),
+                                 tags=(str(c[0]),))
 
             cuotas_info_label_var.set(f"Cuotas Pagadas: {cuotas_pagadas} / {total_cuotas}")
 
@@ -4314,87 +4662,132 @@ class App:
             fecha_venc_var.set("")
 
         def on_select_cuota(event):
-            """
-            Al seleccionar una/s cuota/s en el TreeView, mostrar la primera en los campos.
-            """
+            """Maneja la selección de cuotas"""
             selected_items = cuotas_tree.selection()
             if not selected_items:
                 return
 
             first_item = selected_items[0]
-            vals = cuotas_tree.item(first_item, 'values')  # (N° Cuota, Valor, Vence, F. Pago, Estado Cuota)
-            tags_ = cuotas_tree.item(first_item, 'tags')   # (id_cuota_str,)
+            vals = cuotas_tree.item(first_item, 'values')
+            tags_ = cuotas_tree.item(first_item, 'tags')
 
             if tags_:
                 selected_cuota_id.set(int(tags_[0]))
 
             nro_cuota_var.set(vals[0])
-            valor_cuota_var.set(vals[1])
+            valor_cuota_var.set(vals[1].replace(',', ''))
             fecha_venc_var.set(vals[2])
 
-        cuotas_tree.bind('<<TreeviewSelect>>', on_select_cuota)
-
         def pay_selected_cuotas():
-            """
-            Marca como pagadas todas las cuotas seleccionadas.
-            """
+            """Procesa el pago de las cuotas seleccionadas"""
             selected_items = cuotas_tree.selection()
             if not selected_items:
-                messagebox.showwarning("Atención", "Seleccione al menos una cuota.", parent=window)
+                messagebox.showwarning("Atención",
+                                     "Seleccione al menos una cuota.",
+                                     parent=window)
                 return
+            
+            # Obtener datos del pago seleccionado
+            pago_selection = pagos_tree.selection()
+            if not pago_selection:
+                return
+            pago_data = pagos_tree.item(pago_selection[0], 'values')
+            alumno_nombre = pago_data[2]  # Índice del nombre del alumno
             
             error_count = 0
             for it in selected_items:
                 tags_ = cuotas_tree.item(it, 'tags')
+                valores = cuotas_tree.item(it, 'values')
                 if tags_:
                     id_cuota = int(tags_[0])
-                    success = register_quota_payment(id_cuota)
-                    if not success:
+                    nro_cuota = valores[0]
+                    valor = float(valores[1].replace(',', ''))
+                    
+                    success, num_ingreso = register_quota_payment(id_cuota)
+                    if success:
+                        show_success_message(nro_cuota, valor, alumno_nombre, num_ingreso)
+                    else:
                         error_count += 1
 
-            if error_count == 0:
-                messagebox.showinfo("Éxito", "Las cuotas seleccionadas fueron pagadas.", parent=window)
-                self.show_payments()
-            else:
-                messagebox.showerror("Error", f"Ocurrió un problema pagando {error_count} cuota(s).", parent=window)
+            if error_count > 0:
+                messagebox.showerror("Error",
+                                   f"Ocurrió un problema pagando {error_count} cuota(s).",
+                                   parent=window)
 
             load_cuotas_for_payment()
+            self.show_payments()
 
         def update_selected_cuota():
-            """
-            Actualiza valor_cuota y/o fecha_vencimiento de la cuota (single).
-            """
+            """Actualiza los datos de la cuota seleccionada"""
             _id = selected_cuota_id.get()
             if _id == 0:
-                messagebox.showwarning("Atención", "Seleccione una cuota primero.", parent=window)
+                messagebox.showwarning("Atención",
+                                     "Seleccione una cuota primero.",
+                                     parent=window)
                 return
 
-            new_val = valor_cuota_var.get().strip()
+            new_val = valor_cuota_var.get().strip().replace(',', '')
             new_date = fecha_venc_var.get().strip()
-
-            val_float = None
-            if new_val:
-                try:
-                    val_float = float(new_val)
-                except ValueError:
-                    messagebox.showerror("Error", "El valor debe ser numérico.", parent=window)
-                    return
+            try:
+                val_float = float(new_val) if new_val else None
+            except ValueError:
+                messagebox.showerror("Error",
+                                   "El valor debe ser numérico.",
+                                   parent=window)
+                return
 
             if new_date:
                 try:
                     datetime.strptime(new_date, "%Y-%m-%d")
                 except ValueError:
-                    messagebox.showerror("Error", "La fecha debe tener formato YYYY-MM-DD.", parent=window)
+                    messagebox.showerror("Error",
+                                       "La fecha debe tener formato YYYY-MM-DD.",
+                                       parent=window)
                     return
 
-            success = update_cuota(_id, valor_cuota=val_float, fecha_vencimiento=new_date or None)
+            # Obtener información del alumno para el mensaje de éxito
+            pago_selection = pagos_tree.selection()
+            if not pago_selection:
+                return
+            pago_data = pagos_tree.item(pago_selection[0], 'values')
+            alumno_nombre = pago_data[2]  # Índice del nombre del alumno
+
+            # Obtener número de cuota actual
+            cuota_selection = cuotas_tree.selection()
+            if not cuota_selection:
+                return
+            cuota_data = cuotas_tree.item(cuota_selection[0], 'values')
+            nro_cuota = cuota_data[0]
+
+            success, num_ingreso = update_cuota(
+                _id, 
+                valor_cuota=val_float,
+                fecha_vencimiento=new_date or None
+            )
+
             if success:
-                messagebox.showinfo("Éxito", "Cuota actualizada correctamente.", parent=window)
+                show_success_message(
+                    nro_cuota=nro_cuota,
+                    valor=val_float,
+                    alumno=alumno_nombre,
+                    num_ingreso=num_ingreso
+                )
                 load_cuotas_for_payment()
                 self.show_payments()
             else:
-                messagebox.showerror("Error", "No se pudo actualizar la cuota.", parent=window)
+                messagebox.showerror("Error",
+                                   "No se pudo actualizar la cuota.",
+                                   parent=window)
 
+        def on_pago_selected(event):
+            """Carga automáticamente las cuotas al seleccionar un pago"""
+            selection = pagos_tree.selection()
+            if selection:
+                load_cuotas_for_payment()
+
+        # Eventos
+        pagos_tree.bind('<<TreeviewSelect>>', on_pago_selected)
+        cuotas_tree.bind('<<TreeviewSelect>>', on_select_cuota)
         
     # ---------------------------------------------------
     #                  FACTURAS
@@ -5736,6 +6129,232 @@ class App:
             print(f"Error al mostrar tramitaciones: {e}")
             import traceback
             traceback.print_exc()
+# ---------------------------------------------------
+#       Funciones Libro de Clases
+# ---------------------------------------------------
+
+
+
+    def show_carpetas(self, show_all=False):
+        """Muestra la lista de carpetas en la ventana principal."""
+        try:
+            # Actualizar el estado actual de la vista
+            self.show_all_carpetas = show_all
+            
+            # Limpiar contenido principal
+            self._clear_main_content()
+            
+            # Actualizar título
+            self._update_title_label("Carpetas de Libros de Clase")
+            
+            # Frame para botones
+            button_frame = ttk.Frame(self.main_frame)
+            button_frame.pack(fill=tk.X, padx=10, pady=5)
+            
+            # Botón para mostrar todas las carpetas
+            mostrar_todas_button = ttk.Button(
+                button_frame,
+                text="Mostrar Todas",
+                command=lambda: self.show_carpetas(show_all=True),
+                style='Action.TButton'
+            )
+            mostrar_todas_button.pack(side=tk.LEFT, padx=2)
+            
+            # Botón para eliminar una carpeta seleccionada
+            eliminar_button = ttk.Button(
+                button_frame,
+                text="Eliminar",
+                command=self.delete_selected_carpeta,
+                style='delete.TButton'
+            )
+            eliminar_button.pack(side=tk.LEFT, padx=2)
+            
+            # Frame para Treeview
+            tree_frame = ttk.Frame(self.main_frame)
+            tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Configurar estilo para aumentar la altura de las filas
+            style = ttk.Style()
+            style.configure("Custom.Treeview",
+                            rowheight=30,  # Ajusta este valor según tus necesidades
+                            font=('Helvetica', 9))  # Opcional: Ajusta el tamaño de la fuente
+            
+            # Scrollbars
+            vsb = ttk.Scrollbar(tree_frame, orient="vertical")
+            hsb = ttk.Scrollbar(tree_frame, orient="horizontal")
+            
+            # Configurar Treeview con el estilo personalizado
+            self.carpetas_tree = ttk.Treeview(
+                tree_frame,
+                style="Custom.Treeview",  # Aplica el estilo personalizado
+                columns=(
+                    "id", "numero_acta", "id_curso", "nombre_curso",
+                    "fecha_inicio", "fecha_termino", "estado", 
+                    "total_alumnos", "total_libros"
+                ),
+                show="headings",
+                selectmode="browse",
+                yscrollcommand=vsb.set,
+                xscrollcommand=hsb.set
+            )
+            
+            # Configurar grid
+            self.carpetas_tree.grid(row=0, column=0, sticky="nsew")
+            vsb.grid(row=0, column=1, sticky="ns")
+            hsb.grid(row=1, column=0, sticky="ew")
+            
+            tree_frame.grid_rowconfigure(0, weight=1)
+            tree_frame.grid_columnconfigure(0, weight=1)
+            
+            # Configurar scrollbars
+            vsb.configure(command=self.carpetas_tree.yview)
+            hsb.configure(command=self.carpetas_tree.xview)
+            
+            # Configurar columnas
+            headers = {
+                "id": ("ID", 60),
+                "numero_acta": ("N° Acta", 100),
+                "id_curso": ("ID Curso", 100),
+                "nombre_curso": ("Nombre Curso", 400),
+                "fecha_inicio": ("F. Inicio", 100),
+                "fecha_termino": ("F. Término", 100),
+                "estado": ("Estado", 100),
+                "total_alumnos": ("Total Alumnos", 100),
+                "total_libros": ("Total Libros", 100)
+            }
+            
+            for col, (header, width) in headers.items():
+                self.carpetas_tree.heading(col, text=header, anchor=tk.CENTER)
+                self.carpetas_tree.column(
+                    col, 
+                    width=width, 
+                    minwidth=50,
+                    anchor=tk.W if col == "nombre_curso" else tk.CENTER
+                )
+            
+            # Configurar tags para colores
+            self.carpetas_tree.tag_configure('activo', background='#90EE90')
+            self.carpetas_tree.tag_configure('finalizado', background='#FFB6C1')
+            
+            # Cargar datos
+            carpetas = fetch_carpetas_formacion(active_only=not show_all)
+            
+            # Limpiar el Treeview antes de insertar nuevos datos
+            for item in self.carpetas_tree.get_children():
+                self.carpetas_tree.delete(item)
+            
+            if carpetas:
+                for carpeta in carpetas:
+                    fecha_inicio = carpeta[4].strftime('%Y-%m-%d') if carpeta[4] else ''
+                    fecha_termino = carpeta[5].strftime('%Y-%m-%d') if carpeta[5] else ''
+                    
+                    values = [
+                        carpeta[0],            # id_carpeta
+                        carpeta[1],            # numero_acta
+                        carpeta[2],            # id_curso
+                        carpeta[3],            # nombre_curso
+                        fecha_inicio,          # fecha_inicio
+                        fecha_termino,         # fecha_termino
+                        carpeta[6].upper(),    # estado
+                        carpeta[7],            # total_alumnos
+                        carpeta[8]             # total_libros
+                    ]
+                    
+                    tag = 'activo' if carpeta[6].lower() == 'activo' else 'finalizado'
+                    self.carpetas_tree.insert("", "end", values=values, tags=(tag,))
+            
+            # Binding para doble click
+            self.carpetas_tree.bind("<Double-1>", self.abrir_libros_window)
+            
+        except Exception as e:
+            print(f"Error al mostrar carpetas: {e}")
+            traceback.print_exc()
+            messagebox.showerror(
+                "Error",
+                "Error al mostrar carpetas. Consulte la consola para más detalles."
+            )
+    
+    def delete_selected_carpeta(self):
+        """Elimina la carpeta seleccionada."""
+        try:
+            selected_item = self.carpetas_tree.selection()
+            if not selected_item:
+                messagebox.showwarning("Advertencia", "No se ha seleccionado ninguna carpeta para eliminar.")
+                return
+            
+            # Obtener los valores de la carpeta seleccionada
+            carpeta = self.carpetas_tree.item(selected_item)['values']
+            id_carpeta = carpeta[0]  # Asumiendo que el primer valor es id_carpeta
+            
+            # Confirmar eliminación
+            confirm = messagebox.askyesno("Confirmar Eliminación", f"¿Está seguro de que desea eliminar la carpeta '{carpeta[3]}'?")
+            if not confirm:
+                return
+            
+            # Realizar la eliminación en la base de datos
+            self.eliminar_carpeta(id_carpeta)
+            
+            # Actualizar la vista
+            self.show_carpetas(show_all=self.show_all_carpetas)
+            
+            messagebox.showinfo("Éxito", "La carpeta ha sido eliminada exitosamente.")
+            
+        except Exception as e:
+            print(f"Error al eliminar carpeta: {e}")
+            traceback.print_exc()
+            messagebox.showerror("Error", "Error al eliminar la carpeta. Consulte la consola para más detalles.")
+
+    def eliminar_carpeta(self, id_carpeta):
+        """Elimina una carpeta de la base de datos."""
+        try:
+            conn = connect_db()
+            cursor = conn.cursor()
+            # Reemplazar '?' por '%s'
+            cursor.execute("DELETE FROM carpeta_libros WHERE id_carpeta = %s", (id_carpeta,))
+            conn.commit()
+        except mysql.connector.Error as err:
+            print(f"Error al eliminar carpeta de la base de datos: {err}")
+            traceback.print_exc()
+            messagebox.showerror("Error", "Error al eliminar la carpeta de la base de datos.")
+        except Exception as e:
+            print(f"Error al eliminar carpeta de la base de datos: {e}")
+            traceback.print_exc()
+            messagebox.showerror("Error", "Error al eliminar la carpeta de la base de datos.")
+        finally:
+            cursor.close()
+            conn.close()
+
+
+    def abrir_libros_window(self, event=None):
+        """Abre la ventana de gestión de libros para la carpeta seleccionada"""
+        selected = self.carpetas_tree.selection()
+        if not selected:
+            messagebox.showwarning("Selección requerida", "Por favor seleccione una carpeta")
+            return
+
+        carpeta_info = self.carpetas_tree.item(selected[0])['values']
+        
+        # Verificar si hay una instancia previa y eliminarla
+        if hasattr(self, 'libro_manager') and self.libro_manager is not None:
+            try:
+                self.libro_manager.close_window()
+            except:
+                pass
+            self.libro_manager = None
+        
+        # Crear nueva instancia
+        self.libro_manager = LibrosManager(self.root)
+        self.libro_manager.show_libros(carpeta_info)
+        
+        # Configurar cierre
+        def on_closing():
+            if hasattr(self, 'libro_manager') and self.libro_manager is not None:
+                self.libro_manager.close_window()
+                self.libro_manager = None
+                
+        self.libro_manager.window.protocol("WM_DELETE_WINDOW", on_closing)
+
+
 
 #================================================================
 #           Funciones de estado activo

@@ -30,6 +30,38 @@ class OMICertificationWindow(ttk.Frame):
         self.setup_ui()
         self.pack(fill='both', expand=True)
 
+    def setup_styles(self):
+        style = ttk.Style()
+        style.configure('Action.TButton',
+                font=('Helvetica', 10, 'bold'),
+                padding=(10, 5),
+                background='#00239c',
+                foreground='white',
+                relief='raised',  # Cambiado a raised para dar el efecto 3D
+                borderwidth=1)    # Añadido borde
+
+        style.map('Action.TButton',
+                    background=[('active', '#001970'),
+                            ('pressed', '#00239c')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')],
+                    relief=[('pressed', 'sunken')])  # Efecto presionado
+
+        style.configure('delete.TButton',
+                        font=('Helvetica', 10, 'bold'),
+                        padding=(10, 5),
+                        background='#b50707',
+                        foreground='white',
+                        relief='raised',  # Cambiado a raised para dar el efecto 3D
+                        borderwidth=1)    # Añadido borde
+
+        style.map('delete.TButton',
+                    background=[('active', '#990606'),
+                            ('pressed', '#b50707')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')],
+                    relief=[('pressed', 'sunken')])  # Efecto presionado
+
     def setup_ui(self):
         """Configura la interfaz de usuario"""
         self.parent.title("Certificación OMI")
@@ -43,7 +75,7 @@ class OMICertificationWindow(ttk.Frame):
         
         ttk.Label(rut_frame, text="RUT Alumno:").pack(side='left', padx=(0, 10))
         ttk.Entry(rut_frame, textvariable=self.rut_var, width=15).pack(side='left', padx=(0, 10))
-        ttk.Button(rut_frame, text="Buscar", command=self.search_student, style='Accent.TButton').pack(side='left')
+        ttk.Button(rut_frame, text="Buscar",style="Action.TButton", command=self.search_student).pack(side='left')
 
         # Información del alumno
         info_frame = ttk.LabelFrame(main_frame, text="Datos del Alumno", padding=10)
@@ -89,10 +121,12 @@ class OMICertificationWindow(ttk.Frame):
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill='x', pady=(15, 0))
         
-        ttk.Button(btn_frame, text="Generar Certificación",
+        ttk.Button(btn_frame, text="Generar Certificación",style="Action.TButton",
                   command=self.generate_certification).pack(side='right', padx=5)
-        ttk.Button(btn_frame, text="Limpiar",
+        ttk.Button(btn_frame, text="Limpiar",style="delete.TButton",
                   command=self.clear_form).pack(side='right', padx=5)
+
+
 
     def search_student(self):
         """Busca al alumno y sus cursos de competencia"""
