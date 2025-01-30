@@ -17,6 +17,7 @@ from .cotizacion_window import CotizacionWindow
 from helpers.doc_generator import generate_pagare_docx
 from helpers.num_a_let import numero_a_letras
 from gui.tramitaciones.tramitacion import IntegratedTramitacionesFrame
+from gui.tramitaciones.ordenpago import OrdenCompraWindow
 from gui.Libros import LibrosManager
 
 
@@ -83,7 +84,7 @@ from database.queries import (
 
 
     fetch_all_students,insert_student,fetch_student_by_rut,            #Alumnos
-    delete_student_by_rut,fetch_students_by_name_apellido,validate_alumno_exists,fetch_active_students,
+    delete_student_by_rut,fetch_students_by_name_apellido,fetch_active_students,
 
     fetch_payments,insert_payment,fetch_payments_by_inscription,insert_payment_contribution,        #Pagos
     fetch_alumno_curso_inscripcion,fetch_cuotas_by_pago,register_quota_payment,
@@ -94,9 +95,9 @@ from database.queries import (
     fetch_user_by_credentials,enroll_student,fetch_inscriptions,                                    #Inscripciones
     update_inscription,update_student,validate_duplicate_enrollment,
     format_inscription_data,delete_inscription,fetch_inscription_by_id,
-     add_business_days,fetch_inscriptions_filtered,
+    add_business_days,fetch_inscriptions_filtered,
 
-    get_or_create_empresa,fetch_all_empresas,                                                       #Empresas
+    fetch_all_empresas,                                                       #Empresas
     fetch_contactos_by_empresa,fetch_all_empresas_for_combo
     ,delete_contacto_empresa,format_empresa_data,
     fetch_empresa_by_id,save_empresa,save_contacto_empresa,
@@ -105,7 +106,9 @@ from database.queries import (
 
     fetch_tramitaciones_by_rut,fetch_tramitaciones_activas,fetch_tramitaciones,fetch_tipos_tramite,  #Tramitaciones     
 
-    fetch_carpetas_formacion,create_carpeta_libros                                                 #Libros de Clase
+    fetch_carpetas_formacion,create_carpeta_libros,                                            #Libros de Clase
+
+                                                            #Alertas
 )
 
 
@@ -126,7 +129,7 @@ class App:
         # 2. Maximizamos la ventana (pero sigue oculta)
         self.root.state('zoomed')
         self.root.resizable(True, True)
-
+        self.alerts_shown = set()  # Conjunto para guardar las alertas mostradas
         # Configuración de estilos, etc.
         self.setup_styles()
 
@@ -241,6 +244,30 @@ class App:
                     background="#FFFFFF",
                     relief="flat",
                     borderwidth=0)
+            # Estilo para el botón de alerta
+        style.configure("Custom.TButton",
+                    padding=6,
+                    relief="flat",
+                    background="#0078D7",
+                    foreground="white",
+                    font=('Segoe UI', 10))
+        
+        style.configure('Red.TButton',
+                background='#dc3545',
+                foreground='white',
+                bordercolor='#dc3545',
+                lightcolor='#dc3545',
+                darkcolor='#dc3545',
+                focuscolor='#dc3545',
+                relief='flat',
+                padding=6)
+
+        # Configurar el hover del botón
+        style.map('Red.TButton',
+                background=[('active', '#c82333'),  # Un rojo más oscuro para el hover
+                            ('pressed', '#bd2130')],  # Un rojo aún más oscuro para cuando se presiona
+                foreground=[('active', 'white'),
+                            ('pressed', 'white')])
 
     def show_login_frame(self):
         """
@@ -512,7 +539,423 @@ class App:
         for i, row in enumerate(data):
             tag = 'evenrow' if i % 2 == 0 else 'oddrow'
             self.tree.insert("", "end", values=row, tags=(tag,))
+    # =================================================================
+    #                       Alertas
+    # =================================================================
 
+    def payment_alert(self):
+        """
+        Muestra alerta de pagos que vencen hoy
+        """
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        alert_key = f"payment_alert_{current_date}"
+        
+        if alert_key in self.alerts_shown:
+            return
+
+        try:
+            # Query para obtener pagos vencidos
+            query = """
+            SELECT DISTINCT
+                a.nombre,
+                a.apellido,
+                a.rut,
+                p.tipo_pago,
+                p.id_pago,
+                c.nro_cuota,
+                c.valor_cuota,
+                c.fecha_vencimiento
+            FROM pagos p
+            INNER JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+            INNER JOIN alumnos a ON i.id_alumno = a.rut
+            LEFT JOIN cuotas c ON p.id_pago = c.id_pago
+            WHERE 
+                (c.fecha_vencimiento = CURDATE() AND c.estado_cuota = 'pendiente')
+                OR
+                (p.fecha_final = CURDATE() AND p.estado = 'pendiente')
+            ORDER BY a.apellido, a.nombre;
+            """
+
+            conn = connect_db()
+            cursor = conn.cursor()
+            cursor.execute(query)
+            due_payments = cursor.fetchall()
+            cursor.close()
+            conn.close()
+
+            if not due_payments:
+                return
+
+            # Crear y configurar la ventana
+            alert_window = tk.Toplevel(self.root)
+            alert_window.withdraw()
+            alert_window.title("¡Alerta de Pagos!")
+            alert_window.configure(bg='white')
+            alert_window.resizable(False, False)
+
+            # Configurar el estilo para el frame principal
+            style = ttk.Style()
+            style.configure('White.TFrame', background='white')
+            
+            # Configurar el estilo del botón
+            style.configure('Red.TButton',
+                        background='#dc3545',
+                        foreground='white',
+                        bordercolor='#dc3545',
+                        lightcolor='#dc3545',
+                        darkcolor='#dc3545',
+                        focuscolor='#dc3545',
+                        relief='flat',
+                        padding=6)
+
+            style.map('Red.TButton',
+                    background=[('active', '#c82333'),
+                            ('pressed', '#bd2130')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')])
+
+            try:
+                alert_window.iconbitmap('assets/logo1.ico')
+            except Exception as e:
+                print(f"Error al cargar ícono: {e}")
+
+            # Frame principal con fondo blanco
+            main_frame = tk.Frame(alert_window, bg='white')
+            main_frame.pack(fill='both', expand=True)
+
+            # Contenedor del mensaje con padding
+            msg_container = tk.Frame(main_frame, bg='white')
+            msg_container.pack(fill='both', expand=True, padx=20, pady=10)
+
+            # Título con ícono de advertencia
+            title_frame = tk.Frame(msg_container, bg='white')
+            title_frame.pack(pady=(0, 15))
+            
+            # Ícono de advertencia
+            warning_label = tk.Label(title_frame,
+                                text="⚠️",
+                                font=('Segoe UI', 16),
+                                bg='white')
+            warning_label.pack(side='left', padx=(0, 10))
+            
+            # Texto del título
+            title_label = tk.Label(title_frame,
+                                text=f"¡Hoy vencen {len(due_payments)} pagos!",
+                                font=('Segoe UI', 12, 'bold'),
+                                fg='#dc3545',
+                                bg='white')
+            title_label.pack(side='left')
+
+            # Subtítulo
+            subtitle_label = tk.Label(msg_container,
+                                    text="Revisar pagos de:",
+                                    font=('Segoe UI', 11, 'bold'),
+                                    bg='white')
+            subtitle_label.pack(pady=(0, 10))
+
+            # Frame para la lista con scroll
+            list_frame = tk.Frame(msg_container, bg='white')
+            list_frame.pack(fill='both', expand=True, pady=(0, 10))
+
+            # Canvas para el scroll con fondo blanco
+            canvas = tk.Canvas(list_frame, bg='white', highlightthickness=0)
+            scroll_frame = tk.Frame(canvas, bg='white')
+
+            # Configurar el scroll
+            def on_configure(event):
+                canvas.configure(scrollregion=canvas.bbox('all'))
+            scroll_frame.bind('<Configure>', on_configure)
+
+            # Crear ventana en el canvas
+            canvas_window = canvas.create_window((0, 0), window=scroll_frame, anchor='nw')
+
+            # Ajustar el ancho del canvas al frame
+            def on_canvas_configure(event):
+                canvas.itemconfig(canvas_window, width=event.width)
+            canvas.bind('<Configure>', on_canvas_configure)
+
+            # Función para manejar el scroll con la rueda del mouse
+            def on_mousewheel(event):
+                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+            # Binding del mousewheel
+            canvas.bind_all("<MouseWheel>", on_mousewheel)
+            
+            # Lista de pagos
+            for payment in due_payments:
+                nombre_completo = payment[0].lower() + " " + payment[1].lower()
+                
+                # Frame para cada pago con fondo blanco
+                payment_frame = tk.Frame(scroll_frame, bg='white')
+                payment_frame.pack(fill='x', pady=2)
+                
+                # Nombre del alumno
+                tk.Label(payment_frame,
+                        text=f"• {nombre_completo}",
+                        font=('Segoe UI', 10),
+                        bg='white',
+                        anchor='w').pack(fill='x')
+                
+                # RUT
+                tk.Label(payment_frame,
+                        text=f"RUT: {payment[2]}",
+                        font=('Segoe UI', 10),
+                        bg='white',
+                        fg='#666666',
+                        anchor='w',
+                        padx=20).pack(fill='x')
+                
+                # Información de la cuota
+                monto = f"${payment[6]:,.0f}" if payment[6] else "Pendiente"
+                tk.Label(payment_frame,
+                        text=f"Cuota - {monto}",
+                        font=('Segoe UI', 10),
+                        bg='white',
+                        fg='#dc3545',
+                        anchor='w',
+                        padx=20).pack(fill='x')
+
+            # Empaquetar solo el canvas
+            canvas.pack(side='left', fill='both', expand=True)
+
+            # Frame para el botón con fondo blanco
+            button_frame = tk.Frame(main_frame, bg='white')
+            button_frame.pack(pady=(0, 10))
+
+            def dismiss_alert():
+                """Función para cerrar la alerta y recordar que fue vista"""
+                self.alerts_shown.add(alert_key)
+                alert_window.destroy()
+
+            # Botón de aceptar
+            accept_button = ttk.Button(button_frame,
+                                    text="Aceptar",
+                                    command=dismiss_alert,
+                                    style='Red.TButton')
+            accept_button.pack(ipadx=20, ipady=5)
+
+            # Calcular las dimensiones basadas en el contenido
+            alert_window.update_idletasks()
+            width = max(400, main_frame.winfo_reqwidth() + 40)
+            height = min(600, main_frame.winfo_reqheight() + 40)
+
+            # Centrar la ventana
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            x = (screen_width - width) // 2
+            y = (screen_height - height) // 2
+
+            # Configurar geometría final
+            alert_window.geometry(f'{width}x{height}+{x}+{y}')
+
+            # Mostrar la ventana
+            alert_window.grab_set()
+            alert_window.deiconify()
+            alert_window.focus_force()
+
+        except Exception as e:
+            print(f"Error en payment_alert: {e}")
+
+    def tramite_alert(self):
+        """
+        Muestra alerta de trámites pendientes con más de 5 días hábiles
+        """
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        alert_key = f"tramite_alert_{current_date}"
+        
+        print("Verificando alerta de trámites...")  # Debug print
+        
+        if alert_key in self.alerts_shown:
+            print("Alerta ya mostrada hoy")  # Debug print
+            return
+
+        try:
+            # Query para obtener trámites pendientes
+            query = """
+            SELECT DISTINCT
+                a.nombre,
+                a.apellido,
+                a.rut,
+                t.estado_general,
+                t.fecha_ultimo_cambio,
+                DATEDIFF(CURDATE(), t.fecha_ultimo_cambio) as dias_totales
+            FROM tramitaciones t
+            INNER JOIN inscripciones i ON t.id_inscripcion = i.id_inscripcion
+            INNER JOIN alumnos a ON i.id_alumno = a.rut
+            WHERE t.estado_general != 'completado'
+            HAVING dias_totales >= 5;
+            """
+
+
+
+
+            conn = connect_db()
+            cursor = conn.cursor()
+            cursor.execute(query)
+            pending_tramites = cursor.fetchall()
+            cursor.close()
+            conn.close()
+
+            print(f"Trámites encontrados: {len(pending_tramites)}")  # Debug print
+
+            if not pending_tramites:
+                print("No hay trámites pendientes que mostrar")  # Debug print
+                return
+
+            # Crear y configurar la ventana
+            alert_window = tk.Toplevel(self.root)
+            alert_window.withdraw()
+            alert_window.title("¡Alerta de Trámites!")
+            alert_window.configure(bg='white')
+            alert_window.resizable(False, False)
+
+            # Configurar el estilo para el frame principal
+            style = ttk.Style()
+            style.configure('White.TFrame', background='white')
+            
+            # Configurar el estilo del botón
+            style.configure('Red.TButton',
+                        background='#dc3545',
+                        foreground='white',
+                        bordercolor='#dc3545',
+                        lightcolor='#dc3545',
+                        darkcolor='#dc3545',
+                        focuscolor='#dc3545',
+                        relief='flat',
+                        padding=6)
+
+            style.map('Red.TButton',
+                    background=[('active', '#c82333'),
+                            ('pressed', '#bd2130')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')])
+
+            try:
+                alert_window.iconbitmap('assets/logo1.ico')
+            except Exception as e:
+                print(f"Error al cargar ícono: {e}")
+
+            # Frame principal con fondo blanco
+            main_frame = tk.Frame(alert_window, bg='white')
+            main_frame.pack(fill='both', expand=True)
+
+            # Contenedor del mensaje con padding
+            msg_container = tk.Frame(main_frame, bg='white')
+            msg_container.pack(fill='both', expand=True, padx=20, pady=10)
+
+            # Título con ícono de advertencia
+            title_frame = tk.Frame(msg_container, bg='white')
+            title_frame.pack(pady=(0, 15))
+            
+            warning_label = tk.Label(title_frame,
+                                text="⚠️",
+                                font=('Segoe UI', 16),
+                                bg='white')
+            warning_label.pack(side='left', padx=(0, 10))
+            
+            title_label = tk.Label(title_frame,
+                                text=f"¡{len(pending_tramites)} trámites pendientes!",
+                                font=('Segoe UI', 12, 'bold'),
+                                fg='#dc3545',
+                                bg='white')
+            title_label.pack(side='left')
+
+            subtitle_label = tk.Label(msg_container,
+                                    text="Trámites sin actualizar por más de 5 días :",
+                                    font=('Segoe UI', 11, 'bold'),
+                                    bg='white')
+            subtitle_label.pack(pady=(0, 10))
+
+            # Frame para la lista con scroll
+            list_frame = tk.Frame(msg_container, bg='white')
+            list_frame.pack(fill='both', expand=True, pady=(0, 10))
+
+            # Canvas para el scroll con fondo blanco
+            canvas = tk.Canvas(list_frame, bg='white', highlightthickness=0)
+            scroll_frame = tk.Frame(canvas, bg='white')
+
+            def on_configure(event):
+                canvas.configure(scrollregion=canvas.bbox('all'))
+            scroll_frame.bind('<Configure>', on_configure)
+
+            canvas_window = canvas.create_window((0, 0), window=scroll_frame, anchor='nw')
+
+            def on_canvas_configure(event):
+                canvas.itemconfig(canvas_window, width=event.width)
+            canvas.bind('<Configure>', on_canvas_configure)
+
+            def on_mousewheel(event):
+                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+            canvas.bind_all("<MouseWheel>", on_mousewheel)
+            
+            # Lista de trámites
+            for tramite in pending_tramites:
+                nombre_completo = tramite[0].lower() + " " + tramite[1].lower()
+                dias = tramite[5]
+                
+                tramite_frame = tk.Frame(scroll_frame, bg='white')
+                tramite_frame.pack(fill='x', pady=2)
+                
+                tk.Label(tramite_frame,
+                        text=f"• {nombre_completo}",
+                        font=('Segoe UI', 10),
+                        bg='white',
+                        anchor='w').pack(fill='x')
+                
+                tk.Label(tramite_frame,
+                        text=f"RUT: {tramite[2]}",
+                        font=('Segoe UI', 10),
+                        bg='white',
+                        fg='#666666',
+                        anchor='w',
+                        padx=20).pack(fill='x')
+                
+                tk.Label(tramite_frame,
+                        text=f"Estado: {tramite[3]} - {dias} días sin actualizar",
+                        font=('Segoe UI', 10),
+                        bg='white',
+                        fg='#dc3545',
+                        anchor='w',
+                        padx=20).pack(fill='x')
+
+            canvas.pack(side='left', fill='both', expand=True)
+
+            # Frame para el botón con fondo blanco
+            button_frame = tk.Frame(main_frame, bg='white')
+            button_frame.pack(pady=(0, 10))
+
+            def dismiss_alert():
+                """Función para cerrar la alerta y recordar que fue vista"""
+                self.alerts_shown.add(alert_key)
+                alert_window.destroy()
+
+            accept_button = ttk.Button(button_frame,
+                                    text="Aceptar",
+                                    command=dismiss_alert,
+                                    style='Red.TButton')
+            accept_button.pack(ipadx=20, ipady=5)
+
+            # Calcular las dimensiones basadas en el contenido
+            alert_window.update_idletasks()
+            width = max(400, main_frame.winfo_reqwidth() + 40)
+            height = min(600, main_frame.winfo_reqheight() + 40)
+
+            # Centrar la ventana
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            x = (screen_width - width) // 2
+            y = (screen_height - height) // 2
+
+            alert_window.geometry(f'{width}x{height}+{x}+{y}')
+
+            # Mostrar la ventana
+            alert_window.grab_set()
+            alert_window.deiconify()
+            alert_window.focus_force()
+
+        except Exception as e:
+            print(f"Error en tramite_alert: {e}")
 
     # =================================================================
     #  INSCRIPCIONES (se muestran al iniciar)
@@ -3133,7 +3576,7 @@ class App:
                 command=save_edited_student
             ).pack()
     # ---------------------------------------------------
-    #                  PAGOS
+    #                  PAGOS e Historial 
     # ---------------------------------------------------
     def _get_estado_pago_tag(self, estado):
         """
@@ -3150,203 +3593,284 @@ class App:
             return 'sin_procesar'
 
     def show_payments(self):
+            try:
+                # Limpiar solo el contenido principal
+                self._clear_main_content()
+                # Mostrar alerta de pagos vencidos
+                self.payment_alert()
+                
+                # Actualizar el título
+                self._update_title_label("Listado de Pagos")
+                
+                # Crear frame para el contenido principal
+                content_frame = ttk.Frame(self.main_frame)
+                content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+                # Frame para botones
+                button_frame = ttk.Frame(content_frame)
+                button_frame.pack(fill=tk.X, pady=(0, 5))
+                
+                # Botones de acción
+                ttk.Button(
+                    button_frame,
+                    text="Nuevo Pago",
+                    command=self.add_payment_window,
+                    style='Action.TButton'
+                ).pack(side=tk.LEFT, padx=5)
+
+                ttk.Button(
+                    button_frame,
+                    text="Pagos Pendientes",
+                    command=self.show_pending_payments,
+                    style='Action.TButton'
+                ).pack(side=tk.LEFT, padx=5)
+
+                ttk.Button(
+                    button_frame,
+                    text="Buscar por Inscripción",
+                    command=self.show_payments_by_inscription,
+                    style='Action.TButton'
+                ).pack(side=tk.LEFT, padx=5)
+
+                ttk.Button(
+                    button_frame,
+                    text="Pago Contado",
+                    command=self.update_payment_status_window,
+                    style='Action.TButton'
+                ).pack(side=tk.LEFT, padx=5)
+
+                ttk.Button(
+                    button_frame,
+                    text="Pago Cuotas",
+                    command=self.manage_cuotas_pagare_window,
+                    style='Action.TButton'
+                ).pack(side=tk.LEFT, padx=5)
+
+                # Nuevo botón de Orden de Compra
+                ttk.Button(
+                    button_frame,
+                    text="Generar Orden",
+                    command=self.open_orden_compra_window,
+                    style='Action.TButton'
+                ).pack(side=tk.LEFT, padx=5)
+                
+                # Frame para el treeview y scrollbars
+                tree_frame = ttk.Frame(content_frame)
+                tree_frame.pack(fill=tk.BOTH, expand=True)
+                tree_frame.grid_rowconfigure(0, weight=1)
+                tree_frame.grid_columnconfigure(0, weight=1)
+
+                # Configurar estilo del Treeview
+                style = ttk.Style()
+                style.configure("Treeview",
+                    background="#ffffff",
+                    foreground="black",
+                    rowheight=35,
+                    fieldbackground="#ffffff"
+                )
+                
+                style.configure("Treeview.Heading",
+                    background="#e1e1e1",
+                    foreground="black",
+                    relief="flat"
+                )
+                style.map('Treeview',
+                    background=[('selected', '#0078D7')],
+                    foreground=[('selected', 'white')]
+                )
+
+                # Scrollbars
+                vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+                hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+                # Crear Treeview
+                self.tree = ttk.Treeview(
+                    tree_frame,
+                    selectmode="extended",
+                    yscrollcommand=vscroll.set,
+                    xscrollcommand=hscroll.set
+                )
+
+                # Configurar grid
+                self.tree.grid(row=0, column=0, sticky="nsew")
+                vscroll.grid(row=0, column=1, sticky="ns")
+                hscroll.grid(row=1, column=0, sticky="ew")
+
+                # Configurar scrollbars
+                vscroll.configure(command=self.tree.yview)
+                hscroll.configure(command=self.tree.xview)
+
+                # Configurar menú contextual
+                self.context_menu = tk.Menu(tree_frame, tearoff=0)
+                self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
+                self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+
+                # Variables para tracking
+                self.last_click_x = 0
+                self.last_click_y = 0
+
+                # Bindings para el menú contextual
+                self.tree.bind("<Button-3>", self._show_context_menu)
+                self.tree.bind("<Button-1>", self._save_click_position)
+                self.tree.bind("<ButtonRelease-3>", self._save_click_position)
+
+                # Configurar tags para estados
+                self.tree.tag_configure('pendiente', background='#FFF3CD')  # Amarillo claro
+                self.tree.tag_configure('pagado', background='#D4EDDA')    # Verde claro
+                self.tree.tag_configure('cancelado', background='#F8D7DA') # Rojo claro
+                self.tree.tag_configure('sin_procesar', background='#E2E3E5') # Gris claro
+                self.tree.tag_configure('oddrow', background='#f5f5f5')
+                self.tree.tag_configure('evenrow', background='#ffffff')
+                                    
+                # Definir las columnas y headers
+                columns = (
+                    "ID", "Inscripcion", "Alumno", "Curso", "N_Acta",
+                    "Tipo_Pago", "Modalidad_Pago", "Cuotas", "Valor_Total",
+                    "Estado", "Estado_Orden", "N_Orden", "F_Inscripcion", "F_Final"
+                )
+                        
+                headers = (
+                    "ID", "Inscripción", "Alumno", "Curso", "N° Acta",
+                    "Tipo", "Modalidad", "Cuotas", "Valor Total",
+                    "Estado", "Estado Orden", "N° Orden", "F. Inscripción", "F. Final"
+                )
+
+                # Obtener datos y formatear
+                data_raw = fetch_payments()
+                formatted_data = []
+                        
+                if data_raw:
+                    for payment in data_raw:
+                        fecha_inscripcion = payment[4].strftime('%Y-%m-%d') if payment[4] else ''
+                        fecha_final = payment[5].strftime('%Y-%m-%d') if payment[5] else ''
+                        valor_total = f"${payment[7]:,.0f}" if payment[7] else ''
+
+                        row = [
+                            payment[0],                    # ID
+                            payment[1],                    # Inscripción
+                            payment[10],                   # Alumno
+                            payment[11],                   # Curso
+                            payment[9],                    # N° Acta
+                            payment[2].capitalize(),       # Tipo
+                            payment[3].capitalize(),       # Modalidad
+                            f"{payment[12]}/{payment[6]}", # Cuotas pagadas / total
+                            valor_total,                   # Valor
+                            payment[8].upper(),            # Estado
+                            payment[13] if payment[13] else 'SIN EMITIR',  # Estado Orden
+                            payment[14] if payment[14] else '',            # N° Orden
+                            fecha_inscripcion,             # Fecha Inscripción
+                            fecha_final                    # Fecha Final
+                        ]
+                        formatted_data.append(row)
+                
+                # Configurar el tree
+                self.tree.config(columns=columns, show="headings")
+                    
+                # Configurar columnas con anchos
+                column_widths = {
+                    "ID": 60,
+                    "Inscripcion": 80,
+                    "Alumno": 200,
+                    "Curso": 200,
+                    "N_Acta": 80,
+                    "Tipo_Pago": 80,
+                    "Modalidad_Pago": 90,
+                    "Cuotas": 70,
+                    "Valor_Total": 100,
+                    "Estado": 90,
+                    "Estado_Orden": 90,
+                    "N_Orden": 90,
+                    "F_Inscripcion": 100,
+                    "F_Final": 100
+                }
+
+                # Aplicar configuración de columnas
+                for column, header in zip(columns, headers):
+                    self.tree.heading(column, text=header, anchor=tk.CENTER)
+                    width = column_widths.get(column, 100)
+                    self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
+                    
+                # Insertar datos con colores de estado
+                for i, item in enumerate(formatted_data):
+                    estado = item[9].upper()  # Estado es la columna 9
+                    estado_tag = self._get_estado_pago_tag(estado)
+                    row_tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+                    self.tree.insert("", "end", values=item, tags=(estado_tag, row_tag))
+
+                # Forzar actualización del Treeview
+                self.tree.update_idletasks()
+
+            except Exception as e:
+                print(f"Error al mostrar pagos: {e}")
+                import traceback
+                traceback.print_exc()
+
+ 
+    def open_orden_compra_window(self):
+        """Abre la ventana de generación de órdenes de compra"""
         try:
-            # Limpiar solo el contenido principal
-            self._clear_main_content()
+            # Crear ventana top level
+            top = tk.Toplevel(self.root)
             
-            # Actualizar el título
-            self._update_title_label("Listado de Pagos")
+            # Hacer la ventana modal
+            top.transient(self.root)
+            top.grab_set()
             
-            # Crear frame para el contenido principal
-            content_frame = ttk.Frame(self.main_frame)
-            content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-
-            # Frame para botones
-            button_frame = ttk.Frame(content_frame)
-            button_frame.pack(fill=tk.X, pady=(0, 5))
+            # Configurar el título
+            top.title("Generación de Orden de Compra")
             
-            # Botones de acción
-            ttk.Button(
-                button_frame,
-                text="Nuevo Pago",
-                command=self.add_payment_window,
-                style='Action.TButton'
-            ).pack(side=tk.LEFT, padx=5)
-
-            ttk.Button(
-                button_frame,
-                text="Pagos Pendientes",
-                command=self.show_pending_payments,
-                style='Action.TButton'
-            ).pack(side=tk.LEFT, padx=5)
-
-            ttk.Button(
-                button_frame,
-                text="Buscar por Inscripción",
-                command=self.show_payments_by_inscription,
-                style='Action.TButton'
-            ).pack(side=tk.LEFT, padx=5)
-
-            ttk.Button(
-                button_frame,
-                text="Pago Contado",
-                command=self.update_payment_status_window,
-                style='Action.TButton'
-            ).pack(side=tk.LEFT, padx=5)
-
-            ttk.Button(
-                button_frame,
-                text="Pago Cuotas",
-                command=self.manage_cuotas_pagare_window,
-                style='Action.TButton'
-            ).pack(side=tk.LEFT, padx=5)
+            # Obtener dimensiones de la pantalla
+            screen_width = top.winfo_screenwidth()
+            screen_height = top.winfo_screenheight()
             
-            # Frame para el treeview y scrollbars
-            tree_frame = ttk.Frame(content_frame)
-            tree_frame.pack(fill=tk.BOTH, expand=True)
-            tree_frame.grid_rowconfigure(0, weight=1)
-            tree_frame.grid_columnconfigure(0, weight=1)
-
-            # Configurar estilo del Treeview
-            style = ttk.Style()
-            style.configure("Treeview",
-                background="#ffffff",
-                foreground="black",
-                rowheight=35,
-                fieldbackground="#ffffff"
+            # Definir un tamaño fijo para la ventana
+            window_width = 1024  # Ancho fijo
+            window_height = 700  # Alto fijo
+            
+            # Calcular posición para centrar la ventana
+            x_pos = (screen_width - window_width) // 2
+            y_pos = (screen_height - window_height) // 2
+            
+            # Configurar geometría con tamaño fijo
+            top.geometry(f"{window_width}x{window_height}+{x_pos}+{y_pos-25}")
+            
+            # Deshabilitar la maximización
+            top.resizable(True, True)
+            
+            # Establecer conexión
+            conn = connect_db()
+            
+            # Crear la ventana de orden de compra
+            orden_window = OrdenCompraWindow(
+                parent=top,
+                connection=conn
             )
             
-            style.configure("Treeview.Heading",
-                background="#e1e1e1",
-                foreground="black",
-                relief="flat"
-            )
-            style.map('Treeview',
-                background=[('selected', '#0078D7')],
-                foreground=[('selected', 'white')]
-            )
-
-            # Scrollbars
-            vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
-            hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
-
-            # Crear Treeview
-            self.tree = ttk.Treeview(
-                tree_frame,
-                selectmode="extended",
-                yscrollcommand=vscroll.set,
-                xscrollcommand=hscroll.set
-            )
-
-            # Configurar grid
-            self.tree.grid(row=0, column=0, sticky="nsew")
-            vscroll.grid(row=0, column=1, sticky="ns")
-            hscroll.grid(row=1, column=0, sticky="ew")
-
-            # Configurar scrollbars
-            vscroll.configure(command=self.tree.yview)
-            hscroll.configure(command=self.tree.xview)
-
-            # Configurar menú contextual
-            self.context_menu = tk.Menu(tree_frame, tearoff=0)
-            self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
-            self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
-
-            # Variables para tracking
-            self.last_click_x = 0
-            self.last_click_y = 0
-
-            # Bindings para el menú contextual
-            self.tree.bind("<Button-3>", self._show_context_menu)
-            self.tree.bind("<Button-1>", self._save_click_position)
-            self.tree.bind("<ButtonRelease-3>", self._save_click_position)
-
-            # Configurar tags para estados
-            self.tree.tag_configure('pendiente', background='#FFF3CD')  # Amarillo claro
-            self.tree.tag_configure('pagado', background='#D4EDDA')    # Verde claro
-            self.tree.tag_configure('cancelado', background='#F8D7DA') # Rojo claro
-            self.tree.tag_configure('sin_procesar', background='#E2E3E5') # Gris claro
-            self.tree.tag_configure('oddrow', background='#f5f5f5')
-            self.tree.tag_configure('evenrow', background='#ffffff')
-                                
-            # Definir las columnas y headers
-            columns = (
-                "ID", "Inscripcion", "Alumno", "Curso", "N_Acta",
-                "Tipo_Pago", "Modalidad_Pago", "Cuotas", "Valor_Total",
-                "Estado", "F_Inscripcion", "F_Final"
-            )
-                    
-            headers = (
-                "ID", "Inscripción", "Alumno", "Curso", "N° Acta",
-                "Tipo", "Modalidad", "Cuotas", "Valor Total",
-                "Estado", "F. Inscripción", "F. Final"
-            )
-
-            # Obtener datos y formatear
-            data_raw = fetch_payments()
-            formatted_data = []
-                    
-            if data_raw:
-                for payment in data_raw:
-                    fecha_inscripcion = payment[4].strftime('%Y-%m-%d') if payment[4] else ''
-                    fecha_final = payment[5].strftime('%Y-%m-%d') if payment[5] else ''
-                    valor_total = f"${payment[7]:,.0f}" if payment[7] else ''
-
-                    row = [
-                        payment[0],                    # ID
-                        payment[1],                    # Inscripción
-                        payment[10],                   # Alumno
-                        payment[11],                   # Curso
-                        payment[9],                    # N° Acta
-                        payment[2].capitalize(),       # Tipo
-                        payment[3].capitalize(),       # Modalidad
-                        f"{payment[12]}/{payment[6]}", # Cuotas pagadas / total
-                        valor_total,                   # Valor
-                        payment[8].upper(),            # Estado
-                        fecha_inscripcion,
-                        fecha_final
-                    ]
-                    formatted_data.append(row)
+            # Vincular el evento de cierre
+            top.protocol("WM_DELETE_WINDOW", lambda: self._close_orden_window(top, conn))
             
-            # Configurar el tree
-            self.tree.config(columns=columns, show="headings")
-                
-            # Configurar columnas con anchos
-            column_widths = {
-                "ID": 60,
-                "Inscripcion": 80,
-                "Alumno": 200,
-                "Curso": 200,
-                "N_Acta": 80,
-                "Tipo_Pago": 80,
-                "Modalidad_Pago": 90,
-                "Cuotas": 70,
-                "Valor_Total": 100,
-                "Estado": 90,
-                "F_Inscripcion": 100,
-                "F_Final": 100
-            }
-
-            # Aplicar configuración de columnas
-            for column, header in zip(columns, headers):
-                self.tree.heading(column, text=header, anchor=tk.CENTER)
-                width = column_widths.get(column, 100)
-                self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
-                
-            # Insertar datos con colores de estado
-            for i, item in enumerate(formatted_data):
-                estado = item[9].upper()  # Estado es la columna 9
-                estado_tag = self._get_estado_pago_tag(estado)
-                row_tag = 'evenrow' if i % 2 == 0 else 'oddrow'
-                self.tree.insert("", "end", values=item, tags=(estado_tag, row_tag))
-
-            # Forzar actualización del Treeview
-            self.tree.update_idletasks()
-
+            # Esperar hasta que se cierre la ventana
+            self.root.wait_window(top)
+            
+            # Refrescar la vista de pagos
+            self.show_payments()
+            
         except Exception as e:
-            print(f"Error al mostrar pagos: {e}")
+            messagebox.showerror("Error", f"Error al abrir ventana de órdenes: {str(e)}")
+            print(f"Error en open_orden_compra_window: {e}")
             import traceback
             traceback.print_exc()
+
+    def _close_orden_window(self, window, conn=None):
+        """Maneja el cierre de la ventana de órdenes"""
+        try:
+            if conn:
+                conn.close()
+            window.grab_release()
+            window.destroy()
+        except Exception as e:
+            print(f"Error al cerrar ventana de órdenes: {e}")
+            window.destroy()
     
     def show_payment_history(self):
         """Muestra el historial de pagos en el frame principal con scrollbars correctamente configuradas"""
@@ -5906,9 +6430,9 @@ class App:
             try:
                 # Limpiar contenido principal
                 self._clear_main_content()
-                
                 # Actualizar título
                 self._update_title_label("Gestión de Tramitaciones")
+                self.tramite_alert()  # Mostrar alerta de trámites
                 
                 # Frame principal
                 content_frame = ttk.Frame(self.main_frame)
@@ -5942,6 +6466,13 @@ class App:
                     search_frame,
                     text="Ver Todas",
                     command=lambda: self._refresh_tramitaciones(),
+                    style='Action.TButton'
+                ).pack(side=tk.LEFT, padx=2)
+
+                ttk.Button(
+                    search_frame,
+                    text="Finalizar Tramitacion",
+                    command=lambda: self._update_tramitacion_status(),
                     style='Action.TButton'
                 ).pack(side=tk.LEFT, padx=2)
 
@@ -6039,7 +6570,7 @@ class App:
                 self.tramitaciones_tree.bind('<<TreeviewSelect>>', self._show_tramitacion_docs)
 
                 # Cargar datos iniciales
-                self._refresh_tramitaciones()
+                self._show_active_tramitaciones()
 
             except Exception as e:
                 print(f"Error al mostrar tramitaciones: {e}")
@@ -6107,7 +6638,60 @@ class App:
         for i, doc in enumerate(documentos):
             tag = 'evenrow' if i % 2 == 0 else 'oddrow'
             self.docs_tree.insert("", "end", values=doc, tags=(tag,))
-            
+
+    def _update_tramitacion_status(self):
+        """Actualiza el estado de la tramitación seleccionada"""
+        selected = self.tramitaciones_tree.selection()
+        if not selected:
+            messagebox.showwarning("Selección", "Por favor seleccione una tramitación")
+            return
+
+        conn = None
+        cursor = None
+        try:
+            item = self.tramitaciones_tree.item(selected[0])
+            id_tramitacion = item['values'][-1]  # El id_tramitacion está en la última columna
+            estado_actual = item['values'][3]  # El estado está en la cuarta columna
+
+            if estado_actual == 'completado':
+                messagebox.showinfo("Info", "Esta tramitación ya está completada")
+                return
+
+            # Confirmar actualización
+            if not messagebox.askyesno("Confirmar", 
+                "¿Está seguro que desea marcar esta tramitación como completada?\n\n" +
+                "Esto indicará que todos los trámites han finalizado."):
+                return
+
+            # Establecer conexión
+            conn = connect_db()
+            cursor = conn.cursor()
+                
+            # Actualizar estado
+            query = """
+                UPDATE tramitaciones 
+                SET estado_general = 'completado',
+                    fecha_final = CURDATE()
+                WHERE id_tramitacion = %s
+            """
+                
+            cursor.execute(query, (id_tramitacion,))
+            conn.commit()
+                
+            messagebox.showinfo("Éxito", "Tramitación marcada como completada")
+            self._refresh_tramitaciones()  # Actualizar vista
+
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            messagebox.showerror("Error", f"Error al actualizar tramitación: {str(e)}")
+            print(f"Error en _update_tramitacion_status: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
     def show_tramitar(self):
         """Muestra la ventana de tramitaciones integrada en el frame principal"""
         try:

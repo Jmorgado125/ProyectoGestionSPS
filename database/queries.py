@@ -1232,7 +1232,33 @@ def fetch_payments():
         cursor = conn.cursor()
         query = """
             SELECT 
-                p.id_pago,
+                p.id_pago,                    -- 0
+                p.id_inscripcion,             -- 1
+                p.tipo_pago,                  -- 2
+                p.modalidad_pago,             -- 3
+                p.fecha_inscripcion,          -- 4
+                p.fecha_final,                -- 5
+                p.num_cuotas,                 -- 6
+                p.valor_total,                -- 7
+                p.estado,                     -- 8
+                i.numero_acta,                -- 9
+                CONCAT(a.nombre, ' ', a.apellido) AS nombre_alumno,  -- 10
+                c.nombre_curso,               -- 11
+                COALESCE(SUM(CASE 
+                    WHEN cuo.estado_cuota = 'pagada' 
+                    THEN 1 
+                    ELSE 0 
+                END), 0) AS cuotas_pagadas,  -- 12
+                p.estado_orden,               -- 13
+                p.numero_orden,               -- 14
+                a.rut                         -- 15
+            FROM pagos p
+            LEFT JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+            LEFT JOIN alumnos a ON i.id_alumno = a.rut
+            LEFT JOIN cursos c ON i.id_curso = c.id_curso
+            LEFT JOIN cuotas cuo ON p.id_pago = cuo.id_pago
+            GROUP BY 
+                p.id_pago, 
                 p.id_inscripcion,
                 p.tipo_pago,
                 p.modalidad_pago,
@@ -1242,15 +1268,11 @@ def fetch_payments():
                 p.valor_total,
                 p.estado,
                 i.numero_acta,
-                CONCAT(a.nombre, ' ', a.apellido) AS nombre_alumno,
+                nombre_alumno,
                 c.nombre_curso,
-                COALESCE(SUM(CASE WHEN cuo.estado_cuota = 'pagada' THEN 1 ELSE 0 END), 0) AS cuotas_pagadas
-            FROM pagos p
-            LEFT JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
-            LEFT JOIN alumnos a ON i.id_alumno = a.rut
-            LEFT JOIN cursos c ON i.id_curso = c.id_curso
-            LEFT JOIN cuotas cuo ON p.id_pago = cuo.id_pago
-            GROUP BY p.id_pago
+                p.estado_orden,
+                p.numero_orden,
+                a.rut
             ORDER BY p.fecha_inscripcion DESC
         """
         cursor.execute(query)
@@ -1260,8 +1282,10 @@ def fetch_payments():
         print("Error al obtener pagos:", e)
         return []
     finally:
-        cursor.close()
-        conn.close()
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 def fetch_pending_payments():
     conn = connect_db()
@@ -3343,4 +3367,5 @@ def fetch_carpetas_formacion(active_only=True):
     finally:
         cursor.close()
         conn.close()
+
 
