@@ -32,6 +32,38 @@ class BulkEnrollment:
         self.window.configure(bg='#f0f0f0')
         self.setup_ui()
 
+    def setup_styles(self):
+        style = ttk.Style()
+        style.configure('Action.TButton',
+                font=('Helvetica', 10, 'bold'),
+                padding=(10, 5),
+                background='#00239c',
+                foreground='white',
+                relief='raised',  # Cambiado a raised para dar el efecto 3D
+                borderwidth=1)    # Añadido borde
+
+        style.map('Action.TButton',
+                    background=[('active', '#001970'),
+                            ('pressed', '#00239c')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')],
+                    relief=[('pressed', 'sunken')])  # Efecto presionado
+
+        style.configure('delete.TButton',
+                        font=('Helvetica', 10, 'bold'),
+                        padding=(10, 5),
+                        background='#b50707',
+                        foreground='white',
+                        relief='raised',  # Cambiado a raised para dar el efecto 3D
+                        borderwidth=1)    # Añadido borde
+
+        style.map('delete.TButton',
+                    background=[('active', '#990606'),
+                            ('pressed', '#b50707')],
+                    foreground=[('active', 'white'),
+                            ('pressed', 'white')],
+                    relief=[('pressed', 'sunken')])  # Efecto presionado
+
     def setup_ui(self):
         # Frame principal
         main_frame = tk.Frame(self.window, bg='#f0f0f0')
@@ -64,6 +96,7 @@ class BulkEnrollment:
         ttk.Button(
             step1_frame,
             text="Descargar Plantilla",
+            style='Action.TButton',
             command=self.download_template
         ).pack(side=tk.RIGHT)
 
@@ -80,6 +113,7 @@ class BulkEnrollment:
         ttk.Button(
             step2_frame,
             text="Cargar Excel",
+            style='Action.TButton',
             command=self.upload_excel
         ).pack(side=tk.RIGHT)
 
@@ -128,6 +162,7 @@ class BulkEnrollment:
         select_button = ttk.Button(
             drop_content,
             text="Seleccionar Archivo",
+            style='Action.TButton',
             command=self.upload_excel
         )
         select_button.pack(pady=(5, 0))
@@ -158,6 +193,7 @@ class BulkEnrollment:
         self.process_button = ttk.Button(
             main_frame,
             text="Procesar Matrículas",
+            style='Action.TButton',
             command=self.process_enrollments
         )
 

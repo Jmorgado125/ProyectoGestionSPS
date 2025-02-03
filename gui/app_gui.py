@@ -20,9 +20,6 @@ from gui.tramitaciones.tramitacion import IntegratedTramitacionesFrame
 from gui.tramitaciones.ordenpago import OrdenCompraWindow
 from gui.Libros import LibrosManager
 
-
-
-
 # ============================
 #   Validador avanzado de RUT
 # ============================
@@ -90,7 +87,7 @@ from database.queries import (
     fetch_alumno_curso_inscripcion,fetch_cuotas_by_pago,register_quota_payment,
     update_cuota,search_pagare_payments,fetch_pending_payments,register_contado_payment,
 
-    insert_invoice,fetch_invoices,update_invoice_status,                                                                  #Facturas
+    insert_invoice,fetch_inscripcion_info,update_invoice_status,                                                                  #Facturas
     
     fetch_user_by_credentials,enroll_student,fetch_inscriptions,                                    #Inscripciones
     update_inscription,update_student,validate_duplicate_enrollment,
@@ -110,8 +107,6 @@ from database.queries import (
 
                                                             #Alertas
 )
-
-
 
 class App:
     def __init__(self, root=None):
@@ -150,8 +145,8 @@ class App:
         self.root.deiconify()
 
         # 5. Mostramos directamente el LoginFrame (o la interfaz principal)
-        #self.show_login_frame()
-        self.setup_main_interface()
+        self.show_login_frame()
+        #self.setup_main_interface()
 
     def setup_styles(self):
         """
@@ -2003,15 +1998,13 @@ class App:
             metodo = inscription['metodo_llegada']
             metodo_combo.set(metodo.upper() if metodo else "PARTICULAR")
 
-        # Botón de búsqueda
-        tk.Button(
-            search_frame,
-            text="Buscar",
-            bg="#022e86",
-            fg="white",
-            font=("Helvetica", 10),
-            command=load_inscription_data
-        ).pack(side='left', padx=10)
+            # Botón de búsqueda
+            tk.Button(
+                search_frame,
+                text="Buscar",
+                style='Action.TButton',
+                command=load_inscription_data
+            ).pack(side='left', padx=10)
 
         def save_changes():
             id_inscripcion = id_inscripcion_entry.get().strip()
@@ -2041,17 +2034,13 @@ class App:
             else:
                 messagebox.showerror("Error", message, parent=window)
 
-        # Botón guardar
-        tk.Button(
-            main_frame,
-            text="Guardar Cambios",
-            bg="#022e86",
-            fg="white",
-            font=("Helvetica", 10, "bold"),
-            padx=30,
-            pady=10,
-            command=save_changes
-        ).pack(pady=20)
+            # Botón guardar
+            tk.Button(
+                main_frame,
+                text="Guardar Cambios",
+                style='Action.TButton',
+                command=save_changes
+            ).pack(pady=20)
         
     def show_bulk_enrollment(self):
         from gui.bulk_enrollment import BulkEnrollment
@@ -3832,7 +3821,7 @@ class App:
             y_pos = (screen_height - window_height) // 2
             
             # Configurar geometría con tamaño fijo
-            top.geometry(f"{window_width}x{window_height}+{x_pos}+{y_pos-25}")
+            top.geometry(f"{window_width}x{window_height}+{x_pos}+{y_pos-30}")
             
             # Deshabilitar la maximización
             top.resizable(True, True)
@@ -4207,24 +4196,6 @@ class App:
         y = (sh // 2) - (550 // 2)
         window.geometry(f"900x550+{x}+{y}")
 
-        # Definir el estilo para los botones
-        style = ttk.Style(window)
-        style.theme_use('clam')  
-        style.configure('Action.TButton',
-                       font=('Helvetica', 10, 'bold'),
-                       padding=(10, 5),
-                       background='#00239c',
-                       foreground='white',
-                       relief='raised',  # Cambiado a raised para dar el efecto 3D
-                       borderwidth=1)    # Añadido borde
-        
-        style.map('Action.TButton',
-                 background=[('active', '#001970'),
-                           ('pressed', '#00239c')],
-                 foreground=[('active', 'white'),
-                           ('pressed', 'white')],
-                 relief=[('pressed', 'sunken')])  # Efecto presionado
-
         main_frame = ttk.Frame(window, padding="20")
         main_frame.pack(fill='both', expand=True)
 
@@ -4299,7 +4270,8 @@ class App:
             valor_entry.insert(0, str(fetched_data["valor_curso"]))
 
         # Botón "Buscar"
-        ttk.Button(inscription_frame, text="Buscar", command=fetch_inscription_info, style='Custom.TButton').grid(row=0, column=2, padx=5)
+        ttk.Button(inscription_frame, text="Buscar",
+            style='Action.TButton',command=fetch_inscription_info).grid(row=0, column=2, padx=5)
 
         # --- Frame: Detalles del pago ---
         payment_frame = ttk.LabelFrame(main_frame, text="Detalles del Pago", padding="10")
@@ -4516,8 +4488,8 @@ class App:
         save_button = ttk.Button(
             main_frame,
             text="Guardar Pago",
+            style='Action.TButton',
             command=validate_and_save,
-            style='Custom.TButton'
         )
         save_button.grid(row=4, column=0, columnspan=4, pady=10)
 
@@ -4525,8 +4497,8 @@ class App:
         generate_button = ttk.Button(
             main_frame,
             text="Generar Contrato Pagaré",
+            style='Action.TButton',
             command=generar_contrato_pagare,
-            style='Custom.TButton'
         )
         generate_button.grid_remove()  # Oculto por defecto
 
@@ -4597,22 +4569,12 @@ class App:
             print(f"Error al cargar ícono: {e}")
 
         # Configurar tamaño y posición
-        window_width = 900
-        window_height = 600
+        window_width = 910
+        window_height = 630
         x = (update_window.winfo_screenwidth() - window_width) // 2
         y = (update_window.winfo_screenheight() - window_height) // 2
-        update_window.geometry(f'{window_width}x{window_height}+{x}+{y}')
+        update_window.geometry(f'{window_width}x{window_height}+{x}+{y-30}')
 
-        # Estilo
-        style = ttk.Style(update_window)
-        style.theme_use('clam')  
-        style.configure('Custom.TButton',
-                     background='#022e86',
-                     foreground='white',
-                     font=('Segoe UI', 10, 'bold'))
-        style.map('Custom.TButton',
-                background=[('active', '#021f5e')],
-                foreground=[('active', 'white')])
 
         # Frame principal
         main_frame = ttk.Frame(update_window, padding="10")
@@ -4666,7 +4628,7 @@ class App:
         apellido_entry.pack(side="left", padx=5)
 
         ttk.Button(search_frame, text="Buscar", command=lambda: search_payments(), 
-                  style='Custom.TButton').grid(row=1, column=3, padx=5, pady=5)
+                  style='Action.TButton').grid(row=1, column=3, padx=5, pady=5)
 
         # Tabla de resultados
         table_frame = ttk.Frame(main_frame)
@@ -4695,11 +4657,11 @@ class App:
 
         ttk.Button(button_frame, text="Registrar Pago",
                   command=lambda: register_selected_payment(),
-                  style='Custom.TButton').pack(side='left', padx=5)
+                  style='Action.TButton').pack(side='left', padx=5)
         
         ttk.Button(button_frame, text="Cerrar",
                   command=update_window.destroy,
-                  style='Custom.TButton').pack(side='right', padx=5)
+                  style='Action.TButton').pack(side='right', padx=5)
 
         def toggle_search_fields(search_mode):
             """Muestra/oculta campos según el tipo de búsqueda"""
@@ -4861,7 +4823,7 @@ class App:
             ttk.Button(frame,
                     text="Aceptar",
                     command=success_window.destroy,
-                    style='Custom.TButton').pack(pady=(15, 0))
+                    style='Action.TButton').pack(pady=(15, 0))
 
         def register_selected_payment():
             """Registra el pago al contado seleccionado"""
@@ -4926,14 +4888,6 @@ class App:
         # --- ESTILO MEJORADO ---
         style = ttk.Style(window)
         style.theme_use('clam')
-        style.configure('Custom.TButton',
-                       background='#0056b3',
-                       foreground='white',
-                       padding=6,
-                       font=('Segoe UI', 10, 'bold'))
-        style.map('Custom.TButton',
-                 background=[('active', '#004494')],
-                 foreground=[('active', 'white')])
         
         style.configure('Custom.Treeview',
                        background='white',
@@ -4962,7 +4916,7 @@ class App:
         ttk.Entry(search_frame, textvariable=search_var, width=20,
                  font=('Segoe UI', 10)).pack(side='left', padx=15)
         ttk.Button(search_frame, text="Buscar", command=lambda: do_search(),
-                  style='Custom.TButton').pack(side='left')
+                  style='Action.TButton').pack(side='left')
 
         # --- FRAME DE PAGOS ---
         pagos_frame = ttk.LabelFrame(main_frame, text="Pagos Encontrados", padding="15")
@@ -4970,7 +4924,7 @@ class App:
 
         pagos_columns = ("ID Pago", "ID Insc", "Alumno", "N° Acta", "Valor", "Estado")
         pagos_tree = ttk.Treeview(pagos_frame, columns=pagos_columns, 
-                                 show="headings", height=3, style='Custom.Treeview')
+                                 show="headings", height=3, style='Action.Treeview')
 
         for col in pagos_columns:
             pagos_tree.heading(col, text=col)
@@ -4992,7 +4946,7 @@ class App:
                          "Estado Cuota", "N° Ingreso")
         cuotas_tree = ttk.Treeview(cuotas_frame, columns=cuotas_columns,
                                   show='headings', selectmode='extended',
-                                  style='Custom.Treeview')
+                                  style='Action.Treeview')
 
         col_widths = {
             "N° Cuota": 80,
@@ -5039,12 +4993,12 @@ class App:
         # Botones de acción
         ttk.Button(action_frame, text="Pagar Seleccionadas",
                   command=lambda: pay_selected_cuotas(),
-                  style='Custom.TButton').grid(row=5, column=0, columnspan=2,
+                  style='Action.TButton').grid(row=5, column=0, columnspan=2,
                                              pady=10, sticky='ew')
 
         ttk.Button(action_frame, text="Actualizar Cuota",
                   command=lambda: update_selected_cuota(),
-                  style='Custom.TButton').grid(row=6, column=0, columnspan=2,
+                  style='Action.TButton').grid(row=6, column=0, columnspan=2,
                                              pady=5, sticky='ew')
 
         ttk.Label(action_frame, textvariable=cuotas_info_label_var,
@@ -5117,7 +5071,7 @@ class App:
             ttk.Button(button_frame,
                     text="Aceptar",
                     command=success_window.destroy,
-                    style='Custom.TButton').pack()
+                    style='Action.TButton').pack()
         def do_search():
             """Busca pagos según criterio seleccionado"""
             # Limpiar árboles
@@ -5316,16 +5270,13 @@ class App:
     # ---------------------------------------------------
     #                  FACTURAS
     # ---------------------------------------------------
+   
     def show_invoices(self):
         """Muestra la lista de facturas en el TreeView."""
         try:
-            # Limpiar solo el contenido principal
             self._clear_main_content()
-            
-            # Actualizar el título
             self._update_title_label("Listado de Facturas")
             
-            # Crear frame para el contenido principal
             content_frame = ttk.Frame(self.main_frame)
             content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
             
@@ -5333,10 +5284,9 @@ class App:
             button_frame = ttk.Frame(content_frame)
             button_frame.pack(fill=tk.X, pady=(0, 5))
             
-            # Botones de acción
             ttk.Button(
                 button_frame,
-                text="Nueva Factura",
+                text="Registrar N° Factura",
                 command=self.add_invoice_window,
                 style='Action.TButton'
             ).pack(side=tk.LEFT, padx=5)
@@ -5348,7 +5298,7 @@ class App:
                 style='Action.TButton'
             ).pack(side=tk.LEFT, padx=5)
             
-            # Frame para el treeview y scrollbars
+            # Frame para el treeview
             tree_frame = ttk.Frame(content_frame)
             tree_frame.pack(fill=tk.BOTH, expand=True)
             tree_frame.grid_rowconfigure(0, weight=1)
@@ -5358,10 +5308,10 @@ class App:
             vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
             hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
 
-            # Crear Treeview
+            # Treeview
             self.tree = ttk.Treeview(
                 tree_frame,
-                selectmode="extended",
+                selectmode="browse",
                 yscrollcommand=vscroll.set,
                 xscrollcommand=hscroll.set
             )
@@ -5370,35 +5320,16 @@ class App:
             self.tree.grid(row=0, column=0, sticky="nsew")
             vscroll.grid(row=0, column=1, sticky="ns")
             hscroll.grid(row=1, column=0, sticky="ew")
-
-            # Configurar scrollbars
             vscroll.configure(command=self.tree.yview)
             hscroll.configure(command=self.tree.xview)
 
-            # Configurar menú contextual
-            self.context_menu = tk.Menu(tree_frame, tearoff=0)
-            self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
-            self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
-
-            # Variables para tracking
-            self.last_click_x = 0
-            self.last_click_y = 0
-
-            # Bindings para el menú contextual
-            self.tree.bind("<Button-3>", self._show_context_menu)
-            self.tree.bind("<Button-1>", self._save_click_position)
-            self.tree.bind("<ButtonRelease-3>", self._save_click_position)
-
-            # Configurar tags base
-            self.tree.tag_configure('oddrow', background='#f5f5f5')
-            self.tree.tag_configure('evenrow', background='#ffffff')
-                
-            # Definir las columnas y headers
+            # Definir columnas
             columns = (
                 "id_factura",
-                "id_curso",
-                "nombre_completo",
-                "rut",
+                "id_inscripcion",
+                "numero_orden",
+                "alumno",
+                "curso",
                 "numero_factura",
                 "monto_total",
                 "estado",
@@ -5407,70 +5338,107 @@ class App:
             
             headers = (
                 "ID",
-                "ID Curso",
-                "Nombre Completo",
-                "RUT",
+                "ID Inscripción",
+                "N° Orden",
+                "Alumno",
+                "Curso",
                 "N° Factura",
                 "Monto Total",
                 "Estado",
                 "Fecha Emisión"
             )
 
-            # Obtener y formatear datos
-            data_raw = fetch_invoices()
-            formatted_data = []
-            
-            for invoice in data_raw:
-                fecha_emision = invoice[7].strftime('%Y-%m-%d') if invoice[7] else ''
-                monto_total = f"${invoice[5]:,.0f}" if invoice[5] else ''
-                
-                row = [
-                    invoice[0],             # ID
-                    invoice[1],             # ID Curso
-                    invoice[2],             # Nombre Completo
-                    invoice[3],             # RUT
-                    invoice[4],             # N° Factura
-                    monto_total,            # Monto Total
-                    invoice[6].upper(),     # Estado
-                    fecha_emision           # Fecha Emisión
-                ]
-                formatted_data.append(row)
-            
             # Configurar el tree
             self.tree.config(columns=columns, show="headings")
             
-            # Configurar columnas
+            # Configurar anchos de columnas
             column_widths = {
                 "id_factura": 80,
-                "id_curso": 100,
-                "nombre_completo": 250,
-                "rut": 120,
+                "id_inscripcion": 100,
+                "numero_orden": 100,
+                "alumno": 250,
+                "curso": 250,
                 "numero_factura": 120,
                 "monto_total": 120,
                 "estado": 100,
                 "fecha_emision": 150
             }
 
-            # Aplicar configuración de columnas
             for column, header in zip(columns, headers):
                 self.tree.heading(column, text=header, anchor=tk.CENTER)
                 width = column_widths.get(column, 100)
                 self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
             
             # Configurar tags de estado
-            self.tree.tag_configure('PENDIENTE', background='#FFF3CD')  # Amarillo claro
-            self.tree.tag_configure('FACTURADA', background='#D4EDDA')  # Verde claro
+            self.tree.tag_configure('PENDIENTE', background='#FFF3CD')
+            self.tree.tag_configure('FACTURADA', background='#D4EDDA')
             
-            # Insertar datos con colores alternados y estados
-            for i, item in enumerate(formatted_data):
-                estado = item[6]  # Estado es la columna 6
-                estado_tag = self._get_estado_factura_tag(estado)
-                tags = (estado_tag,)  # Priorizar el color del estado
-                self.tree.insert("", "end", values=item, tags=tags)
+            # Cargar y mostrar datos
+            try:
+                conn = connect_db()
+                cursor = conn.cursor()
+                
+                query = """
+                    SELECT 
+                        f.id_factura,
+                        f.id_inscripcion,
+                        p.numero_orden,
+                        CONCAT(a.nombre, ' ', a.apellido) as alumno,
+                        c.nombre_curso,
+                        f.numero_factura,
+                        f.monto_total,
+                        f.estado,
+                        f.fecha_emision
+                    FROM facturas f
+                    JOIN inscripciones i ON f.id_inscripcion = i.id_inscripcion
+                    JOIN alumnos a ON i.id_alumno = a.rut
+                    JOIN cursos c ON i.id_curso = c.id_curso
+                    LEFT JOIN pagos p ON i.id_inscripcion = p.id_inscripcion
+                    WHERE p.estado_orden = 'EMITIDO'
+                    ORDER BY f.id_factura DESC
+                """
+                
+                cursor.execute(query)
+                facturas = cursor.fetchall()
+                
+                for factura in facturas:
+                    # Formatear fecha
+                    fecha_emision = factura[8].strftime('%Y-%m-%d %H:%M') if factura[8] else ''
+                    # Formatear monto
+                    monto_total = f"${factura[6]:,.0f}" if factura[6] is not None else '$0'
+                    
+                    # Obtener número de orden o mostrar "Sin N° Orden"
+                    numero_orden = factura[2] if factura[2] else 'Sin N° Orden'
+                    
+                    values = (
+                        factura[0],                # id_factura
+                        factura[1],                # id_inscripcion
+                        numero_orden,              # numero_orden directamente de pagos
+                        factura[3],                # alumno
+                        factura[4],                # curso
+                        factura[5] or 'Sin N° Factura', # numero_factura
+                        monto_total,               # monto_total formateado
+                        factura[7].upper() if factura[7] else 'PENDIENTE',  # estado
+                        fecha_emision              # fecha_emision formateada
+                    )
+                    
+                    # Determinar el tag según el estado
+                    estado = factura[7].upper() if factura[7] else 'PENDIENTE'
+                    tag = 'PENDIENTE' if estado == 'PENDIENTE' else 'FACTURADA'
+                    
+                    self.tree.insert("", "end", values=values, tags=(tag,))
+                    
+            except Exception as e:
+                print(f"Error al cargar datos de facturas: {e}")
+                traceback.print_exc()
+            finally:
+                if cursor:
+                    cursor.close()
+                if conn:
+                    conn.close()
 
         except Exception as e:
             print(f"Error al mostrar facturas: {e}")
-            import traceback
             traceback.print_exc()
 
     def _get_estado_factura_tag(self, estado):
@@ -5483,110 +5451,117 @@ class App:
         return 'PENDIENTE'  # Estado por defecto
 
     def add_invoice_window(self):
-        """Ventana para agregar una nueva factura."""
-        window = tk.Toplevel(self.root)
-        window.title("Nueva Factura")
-        window.geometry("900x550")
-        window.configure(bg="#f0f5ff")
-        window.grab_set()
-        window.focus_force()
+                """Ventana simplificada para registrar número de factura."""
+                window = tk.Toplevel(self.root)
+                window.title("Registrar N° Factura")
+                window.geometry("500x350")  # Ajustado el tamaño
+                window.configure(bg="white")  # Color de fondo gris claro
+                window.resizable(False, False)  # No permitir redimensionar
+                window.grab_set()
+                window.focus_force()
 
-        # Intentar cargar ícono
-        try:
-            window.iconbitmap('assets/logo1.ico')
-        except Exception as e:
-            print(f"Error al cargar ícono de la ventana: {e}")
+                try:
+                    window.iconbitmap('assets/logo1.ico')
+                except Exception as e:
+                    print(f"Error al cargar ícono: {e}")
 
-        # Centrar ventana
-        sw = window.winfo_screenwidth()
-        sh = window.winfo_screenheight()
-        x = (sw // 2) - (900 // 2)
-        y = (sh // 2) - (550 // 2)
-        window.geometry(f"900x550+{x}+{y}")
+                # Centrar ventana
+                window.geometry(f"500x350+{(window.winfo_screenwidth() - 500)//2}+{(window.winfo_screenheight() - 350)//2}")
 
-        # Configurar estilos
-        style = ttk.Style(window)
-        style.theme_use('clam')
-        style.configure('Custom.TButton',
-                        background='#022e86',
-                        foreground='white',
-                        font=('Helvetica', 10, 'bold'))
-        style.map('Custom.TButton',
-                background=[('active', '#021f5e')],
-                foreground=[('active', 'white')])
+                # Frame principal - usando pack con expand=False para control preciso
+                main_frame = ttk.Frame(window)
+                main_frame.pack(fill='both', expand=False, padx=20, pady=20)
 
-        # Frame principal
-        main_frame = ttk.Frame(window, padding="20")
-        main_frame.pack(fill='both', expand=True)
+                # Título
+                ttk.Label(
+                    main_frame,
+                    text="Registrar Número de Factura",
+                    font=("Helvetica", 12, "bold"),
+                    foreground="#00008B"  # Azul oscuro
+                ).pack(pady=(0, 20))
 
-        # Título
-        title_label = ttk.Label(
-            main_frame,
-            text="Registro de Factura",
-            font=("Helvetica", 16, "bold"),
-            foreground="#022e86"
-        )
-        title_label.grid(row=0, column=0, columnspan=4, pady=(0, 20))
+                # Frame de información
+                info_frame = ttk.LabelFrame(main_frame, text="Información", padding="10")
+                info_frame.pack(fill="x", padx=5, pady=5)
 
-        # Frame de información
-        info_frame = ttk.LabelFrame(main_frame, text="Información de Factura", padding="10")
-        info_frame.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, 10))
+                # Variables
+                id_inscripcion_var = tk.StringVar()
+                numero_factura_var = tk.StringVar()
 
-        # Variables
-        id_inscripcion_var = tk.StringVar()
-        numero_factura_var = tk.StringVar()
-        monto_total_var = tk.StringVar()
+                # Grid para campos con alineación precisa
+                ttk.Label(info_frame, text="ID Inscripción:", anchor="e").grid(row=0, column=0, padx=(5, 10), pady=10, sticky="e")
+                id_inscripcion_entry = ttk.Entry(info_frame, textvariable=id_inscripcion_var, width=20)
+                id_inscripcion_entry.grid(row=0, column=1, padx=5, pady=10, sticky="w")
 
-        # Campos del formulario
-        ttk.Label(info_frame, text="ID Inscripción:").grid(row=0, column=0, padx=5, pady=5)
-        ttk.Entry(info_frame, textvariable=id_inscripcion_var, width=15).grid(row=0, column=1, padx=5, pady=5)
+                ttk.Label(info_frame, text="N° Factura:", anchor="e").grid(row=1, column=0, padx=(5, 10), pady=10, sticky="e")
+                ttk.Entry(info_frame, textvariable=numero_factura_var, width=20).grid(row=1, column=1, padx=5, pady=10, sticky="w")
 
-        ttk.Label(info_frame, text="N° Factura:").grid(row=0, column=2, padx=5, pady=5)
-        ttk.Entry(info_frame, textvariable=numero_factura_var, width=20).grid(row=0, column=3, padx=5, pady=5)
+                # Info del alumno
+                info_alumno_label = ttk.Label(info_frame, text="", font=("Helvetica", 10))
+                info_alumno_label.grid(row=2, column=0, columnspan=2, pady=10)
 
-        ttk.Label(info_frame, text="Monto Total:").grid(row=1, column=0, padx=5, pady=5)
-        ttk.Entry(info_frame, textvariable=monto_total_var, width=15).grid(row=1, column=1, padx=5, pady=5)
+                def validate_inscripcion(*args):
+                    try:
+                        id_inscripcion = id_inscripcion_var.get()
+                        if id_inscripcion:
+                            info = fetch_inscripcion_info(id_inscripcion)
+                            if info:
+                                info_text = f"Alumno: {info['nombre']}\nCurso: {info['curso']}"
+                                info_alumno_label.config(text=info_text)
+                            else:
+                                info_alumno_label.config(text="No se encontró la inscripción")
+                    except Exception as e:
+                        print(f"Error al validar inscripción: {e}")
 
-        def save_invoice():
-            try:
-                # Validar campos
-                id_inscripcion = int(id_inscripcion_var.get())
-                numero_factura = numero_factura_var.get().strip()
-                monto_total = float(monto_total_var.get().replace(',', ''))
+                id_inscripcion_var.trace('w', validate_inscripcion)
 
-                if not numero_factura:
-                    messagebox.showerror("Error", "El número de factura es requerido", parent=window)
-                    return
+                def save_invoice():
+                    try:
+                        id_inscripcion = int(id_inscripcion_var.get())
+                        numero_factura = numero_factura_var.get().strip()
 
-                # Insertar factura
-                if insert_invoice(id_inscripcion, numero_factura, monto_total):
-                    messagebox.showinfo("Éxito", "Factura agregada correctamente", parent=window)
-                    window.destroy()
-                    self.show_invoices()
-                else:
-                    messagebox.showerror("Error", "No se pudo agregar la factura", parent=window)
-            except ValueError:
-                messagebox.showerror("Error", "Por favor verifique los datos ingresados", parent=window)
-            except Exception as e:
-                messagebox.showerror("Error", f"Error al guardar: {str(e)}", parent=window)
+                        if not numero_factura:
+                            messagebox.showerror("Error", "El número de factura es requerido", parent=window)
+                            return
 
-        # Frame de botones
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=2, column=0, columnspan=4, pady=20)
+                        if insert_invoice(id_inscripcion, numero_factura):
+                            messagebox.showinfo("Éxito", "Factura registrada correctamente", parent=window)
+                            window.destroy()
+                            self.show_invoices()
+                        else:
+                            messagebox.showerror("Error", "No se pudo registrar la factura", parent=window)
+                    except ValueError:
+                        messagebox.showerror("Error", "ID de inscripción inválido", parent=window)
+                    except Exception as e:
+                        messagebox.showerror("Error", f"Error al guardar: {str(e)}", parent=window)
 
-        ttk.Button(
-            button_frame,
-            text="Guardar",
-            command=save_invoice,
-            style='Custom.TButton'
-        ).pack(side=tk.LEFT, padx=5)
+                # Frame de botones al final de la ventana
+                button_frame = ttk.Frame(window)
+                button_frame.pack(side='bottom', pady=20)
 
-        ttk.Button(
-            button_frame,
-            text="Cancelar",
-            command=window.destroy,
-            style='Custom.TButton'
-        ).pack(side=tk.LEFT, padx=5)
+                # Estilo personalizado para los botones
+                style = ttk.Style()
+                style.configure('Custom.TButton',
+                            background='#00008B',
+                            foreground='white',
+                            padding=(20, 5))
+
+                ttk.Button(
+                    button_frame,
+                    text="Guardar",
+                    command=save_invoice,
+                    style='Action.TButton',
+                    width=15
+                ).pack(side=tk.LEFT, padx=10)
+
+                ttk.Button(
+                    button_frame,
+                    text="Cancelar",
+                    command=window.destroy,
+                    style='delete.TButton',
+                    width=15
+                ).pack(side=tk.LEFT, padx=10)
+
 
     def change_invoice_status(self):
         """Ventana para cambiar el estado de una factura."""
@@ -5970,14 +5945,14 @@ class App:
             button_frame,
             text="Guardar",
             command=save_changes,
-            style="Custom.TButton"
+            style="Action.TButton"
         ).pack(side='right', padx=5)
 
         ttk.Button(
             button_frame,
             text="Limpiar",
             command=clear_fields,
-            style="Custom.TButton"
+            style="delete.TButton"
         ).pack(side='right', padx=5)
 
         # Inicializar modo
@@ -6001,18 +5976,6 @@ class App:
         except Exception as e:
             print(f"Error al cargar ícono: {e}")
 
-        # Definir el estilo para los botones
-        style = ttk.Style(window)
-        # Usar un tema que permita la personalización de los botones
-        style.theme_use('clam')  
-        style.configure('Custom.TButton',
-                        background='#022e86',
-                        foreground='white',
-                        font=('Helvetica', 10, 'bold'))
-        # Cambiar el color cuando el botón está activo o al pasar el mouse
-        style.map('Custom.TButton',
-                background=[('active', '#021f5e')],
-                foreground=[('active', 'white')])
 
         # Frame principal
         main_frame = ttk.Frame(window, padding="20")
@@ -6198,21 +6161,21 @@ class App:
             button_frame,
             text="Guardar",
             command=save_contact,
-            style="Custom.TButton"
+            style="Action.TButton"
         ).pack(side='left', padx=5)
 
         ttk.Button(
             button_frame,
             text="Limpiar",
             command=clear_form,
-            style="Custom.TButton"
+            style="Action.TButton"
         ).pack(side='left', padx=5)
 
         ttk.Button(
             button_frame,
             text="Eliminar",
             command=delete_contact,
-            style="Custom.TButton"
+            style="delete.TButton"
         ).pack(side='left', padx=5)
 
         # Eventos
@@ -6743,6 +6706,14 @@ class App:
                 style='Action.TButton'
             )
             mostrar_todas_button.pack(side=tk.LEFT, padx=2)
+            # Botón para cambiar estado
+            cambiar_estado_button = ttk.Button(
+                button_frame,
+                text="Cambiar Estado",
+                command=self.toggle_estado_carpeta,
+                style='Action.TButton'
+            )
+            cambiar_estado_button.pack(side=tk.LEFT, padx=2)
             
             # Botón para eliminar una carpeta seleccionada
             eliminar_button = ttk.Button(
@@ -6857,6 +6828,74 @@ class App:
                 "Error",
                 "Error al mostrar carpetas. Consulte la consola para más detalles."
             )
+
+    def toggle_estado_carpeta(self):
+        """Cambia el estado de la carpeta entre activo y finalizado."""
+        try:
+            selected_item = self.carpetas_tree.selection()
+            if not selected_item:
+                messagebox.showwarning("Advertencia", "No se ha seleccionado ninguna carpeta.")
+                return
+            
+            # Obtener los valores de la carpeta seleccionada
+            carpeta = self.carpetas_tree.item(selected_item)['values']
+            id_carpeta = carpeta[0]
+            estado_actual = carpeta[6].lower()  # Índice 6 corresponde al estado
+            
+            # Determinar nuevo estado
+            nuevo_estado = 'finalizado' if estado_actual == 'activo' else 'activo'
+            
+            # Confirmar cambio - Corregido el llamado a messagebox
+            mensaje = f"¿Está seguro de que desea cambiar el estado de la carpeta a '{nuevo_estado.upper()}'?"
+            confirm = messagebox.askyesno("Confirmar Cambio de Estado", mensaje)
+            
+            if not confirm:
+                return
+            
+            # Actualizar en la base de datos
+            self.actualizar_estado_carpeta(id_carpeta, nuevo_estado)
+            
+            # Actualizar la vista
+            self.show_carpetas(show_all=self.show_all_carpetas)
+            
+            messagebox.showinfo("Éxito", f"El estado de la carpeta ha sido actualizado a {nuevo_estado.upper()}")
+            
+        except Exception as e:
+            print(f"Error al cambiar estado de carpeta: {e}")
+            traceback.print_exc()
+            messagebox.showerror("Error", "Error al cambiar el estado de la carpeta.")
+
+    def actualizar_estado_carpeta(self, id_carpeta, nuevo_estado):
+        """Actualiza el estado de una carpeta en la base de datos y la fecha de término si corresponde."""
+        try:
+            conn = connect_db()
+            cursor = conn.cursor()
+            
+            if nuevo_estado == 'finalizado':
+                # Si se está finalizando, actualizamos también la fecha de término
+                cursor.execute(
+                    """UPDATE carpeta_libros 
+                    SET estado = %s, fecha_termino = CURDATE() 
+                    WHERE id_carpeta = %s""",
+                    (nuevo_estado, id_carpeta)
+                )
+            else:
+                # Si se está reactivando, limpiamos la fecha de término
+                cursor.execute(
+                    """UPDATE carpeta_libros 
+                    SET estado = %s, fecha_termino = NULL 
+                    WHERE id_carpeta = %s""",
+                    (nuevo_estado, id_carpeta)
+                )
+            
+            conn.commit()
+            
+        except mysql.connector.Error as err:
+            print(f"Error al actualizar estado de carpeta: {err}")
+            raise
+        finally:
+            cursor.close()
+            conn.close()
     
     def delete_selected_carpeta(self):
         """Elimina la carpeta seleccionada."""

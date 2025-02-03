@@ -357,12 +357,21 @@ class OrdenCompraWindow(ttk.Frame):
             curso_result = cursor.fetchone()
             id_curso = curso_result[0] if curso_result else ''
 
-            # Preparar datos para el template
-            fecha_emision = datetime.now()
+            # Preparar datos para el template con fecha actual
+            fecha_actual = datetime.now()
+            dia = fecha_actual.strftime("%d")
+            mes = fecha_actual.strftime("%m")
+            anio = fecha_actual.strftime("%Y")
+            
+            # Formato de fecha completo para el documento
+            fecha_formato = f"{dia}/{mes}/{anio}"
+
             context = {
                 'num_orden': num_orden,
-                'fecha_em': fecha_emision.strftime("%d/%m/%Y"),  # Cambiado a fecha_em para coincidir con el template
-                'año': fecha_emision.year,
+                'fecha_emi': fecha_formato,  # Fecha formateada
+                'dia': dia,                 # Día actual
+                'mes': mes,                 # Mes actual
+                'año': anio,                # Año actual
                 'rut': valores[2],
                 'nombre_alum': valores[3],
                 'id_curso': id_curso,
@@ -378,7 +387,7 @@ class OrdenCompraWindow(ttk.Frame):
             doc.render(context)
 
             # Guardar documento
-            default_filename = f"orden_compra_{num_orden}_{fecha_emision.strftime('%Y%m%d_%H%M%S')}.docx"
+            default_filename = f"orden_compra_{num_orden}_{fecha_actual.strftime('%Y%m%d_%H%M%S')}.docx"
             output_path = filedialog.asksaveasfilename(
                 defaultextension=".docx",
                 filetypes=[("Documento Word", "*.docx")],
@@ -391,7 +400,7 @@ class OrdenCompraWindow(ttk.Frame):
 
             doc.save(output_path)
 
-            # Actualizar estado en BD
+            # Actualizar estado en BD con la fecha actual
             update_query = """
                 UPDATE pagos 
                 SET estado_orden = 'EMITIDO',
@@ -399,7 +408,7 @@ class OrdenCompraWindow(ttk.Frame):
                     detalle = %s,
                     encargado = %s,
                     metodo_pago = %s,
-                    fecha_emision = %s
+                    fecha_pago = %s
                 WHERE id_pago = %s
             """
             cursor.execute(update_query, (
@@ -407,7 +416,7 @@ class OrdenCompraWindow(ttk.Frame):
                 self.detalle_var.get(),
                 self.encargado_var.get(),
                 self.metodo_pago_var.get(),
-                fecha_emision,
+                fecha_actual,
                 valores[0]
             ))
             conn.commit()

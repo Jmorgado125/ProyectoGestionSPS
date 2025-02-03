@@ -2204,77 +2204,82 @@ def fetch_payments_by_inscription(id_inscripcion):
 # =======================================
 #             FACTURACIÓN
 # =======================================
-def insert_invoice(id_inscripcion, numero_factura, monto_total, estado='pendiente'):
-    """
-    Inserta una nueva factura en la tabla 'facturas'.
-    
-    Args:
-        id_inscripcion (int): ID de la inscripción asociada
-        numero_factura (str): Número único de factura
-        monto_total (float): Monto total de la factura
-        estado (str): Estado de la factura (default 'pendiente')
+def fetch_inscripcion_info(id_inscripcion):
+    """Obtiene la información de una inscripción específica."""
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
         
-    Returns:
-        bool: True si la inserción fue exitosa, False en caso contrario
-    """
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO facturas 
-                (id_inscripcion, numero_factura, monto_total, estado)
-                VALUES (%s, %s, %s, %s)
-            """
-            cursor.execute(query, (id_inscripcion, numero_factura, monto_total, estado))
-            conn.commit()
-            return True
-        except Exception as e:
-            print(f"Error al insertar factura: {e}")
-            return False
-        finally:
-            cursor.close()
-            conn.close()
-    return False
+        query = """
+            SELECT 
+                i.id_inscripcion,
+                CONCAT(a.nombre, ' ', a.apellido) as nombre_alumno,
+                c.nombre_curso,
+                c.valor as monto
+            FROM inscripciones i
+            JOIN alumnos a ON i.id_alumno = a.rut
+            JOIN cursos c ON i.id_curso = c.id_curso
+            WHERE i.id_inscripcion = %s
+        """
+        
+        cursor.execute(query, (id_inscripcion,))
+        result = cursor.fetchone()
+        
+        if result:
+            return {
+                'id_inscripcion': result[0],
+                'nombre': result[1],
+                'curso': result[2],
+                'monto': result[3]
+            }
+        return None
+        
+    except Exception as e:
+        print(f"Error al obtener información de inscripción: {e}")
+        return None
+    finally:
+        cursor.close()
+        conn.close()
 
-def fetch_invoices():
-    """
-    Obtiene la lista completa de facturas con información adicional de alumnos e inscripciones.
-    
-    Returns:
-        list: Lista de tuplas con la información de las facturas
-        Orden de columnas: id_factura, id_curso, nombre_completo, rut, numero_factura, 
-                          monto_total, estado, fecha_emision
-    """
-    conn = connect_db()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                SELECT 
-                    f.id_factura,
-                    i.id_curso,
-                    CONCAT(a.nombre, ' ', a.apellido) as nombre_completo,
-                    a.rut,
-                    f.numero_factura,
-                    f.monto_total,
-                    f.estado,
-                    f.fecha_emision
-                FROM facturas f
-                INNER JOIN inscripciones i ON f.id_inscripcion = i.id_inscripcion
-                INNER JOIN alumnos a ON i.id_alumno = a.rut
-                ORDER BY f.id_factura DESC
+def insert_invoice(id_inscripcion, numero_factura):
+    """Inserta una nueva factura."""
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        
+        # Obtener el monto del curso
+        cursor.execute(
             """
-            cursor.execute(query)
-            return cursor.fetchall()
-        except Exception as e:
-            print(f"Error al obtener facturas: {e}")
-            return []
-        finally:
-            cursor.close()
-            conn.close()
-    return []
-
+            SELECT c.valor 
+            FROM inscripciones i
+            JOIN cursos c ON i.id_curso = c.id_curso
+            WHERE i.id_inscripcion = %s
+            """, 
+            (id_inscripcion,)
+        )
+        
+        result = cursor.fetchone()
+        monto_total = result[0] if result else 0
+        
+        # Insertar la factura
+        cursor.execute(
+            """
+            INSERT INTO facturas 
+            (id_inscripcion, numero_factura, monto_total, estado, fecha_emision) 
+            VALUES (%s, %s, %s, 'pendiente', NOW())
+            """,
+            (id_inscripcion, numero_factura, monto_total)
+        )
+        
+        conn.commit()
+        return True
+        
+    except Exception as e:
+        print(f"Error al insertar factura: {e}")
+        return False
+    finally:
+        cursor.close()
+        conn.close()
 def update_invoice_status(id_factura, nuevo_estado):
     """
     Actualiza el estado de una factura.
