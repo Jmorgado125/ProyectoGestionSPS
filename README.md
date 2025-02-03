@@ -105,9 +105,8 @@ Este proyecto está bajo la [MIT License](LICENSE).
 
 ## 🚀 Contacto
 
-- **Autor:** Mateo
-- **Email:** tu-email@example.com
-- **GitHub:** [@tuusuario](https://github.com/tuusuario)
+- **Autor:** Jorge Morgado
+- **GitHub:** [@Jmorgado125](https://github.com/Jmorgado125)
 
 ---
 
