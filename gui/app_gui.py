@@ -81,9 +81,10 @@ from database.queries import (
 
 
     fetch_all_students,insert_student,fetch_student_by_rut,            #Alumnos
-    delete_student_by_rut,fetch_students_by_name_apellido,fetch_active_students,
+    delete_student_by_rut,fetch_students_by_name_apellido,fetch_active_students,update_current_students_table,
+    update_student_contact,
 
-    fetch_payments,insert_payment,fetch_payments_by_inscription,insert_payment_contribution,        #Pagos
+    fetch_payments,insert_payment,fetch_payments_by_criteria,insert_payment_contribution,        #Pagos
     fetch_alumno_curso_inscripcion,fetch_cuotas_by_pago,register_quota_payment,
     update_cuota,search_pagare_payments,fetch_pending_payments,register_contado_payment,
 
@@ -92,7 +93,7 @@ from database.queries import (
     fetch_user_by_credentials,enroll_student,fetch_inscriptions,                                    #Inscripciones
     update_inscription,update_student,validate_duplicate_enrollment,
     format_inscription_data,delete_inscription,fetch_inscription_by_id,
-    add_business_days,fetch_inscriptions_filtered,
+    add_business_days,fetch_inscriptions_filtered,verify_and_create_empresa,
 
     fetch_all_empresas,                                                       #Empresas
     fetch_contactos_by_empresa,fetch_all_empresas_for_combo
@@ -378,7 +379,7 @@ class App:
         menubar.add_command(label="Facturación", command=self.show_invoices)
         menubar.add_command(label="Cotizaciones", command=self.show_cotizaciones)
         menubar.add_command(label="Empresas", command=self.show_empresas)
-        menubar.add_command(label="Alumnos Activos", command=self.show_active_students) 
+        menubar.add_command(label="Alumnos Activos", command=self.show_current_students) 
         #   menubar.add_command(label="Cursos Activos", command=self.show_active_courses)
         menubar.add_command(label="Tramitaciones", command=self.show_tramitaciones)
         menubar.add_command(label='Libros de Clase', command=self.show_carpetas)
@@ -1755,7 +1756,7 @@ class App:
             command=save_enrollment
         ).pack()
 
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def delete_inscription_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Inscripción")
@@ -1880,90 +1881,113 @@ class App:
             command=delete_window.destroy
         ).pack(side=tk.LEFT, padx=5)
     
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def update_inscription_window(self):
         window = tk.Toplevel(self.root)
         window.title("Actualizar Inscripción")
-        window.configure(bg="#f0f5ff")
+        window.configure(bg="#f0f0f0")
         window.grab_set()
         window.focus_force()
 
-        # Configuración de la ventana
-        width, height = 800, 400
+        # Intentar cargar el ícono
+        try:
+            if os.path.exists('assets/logo1.ico'):
+                window.iconbitmap('assets/logo1.ico')
+            else:
+                print("Logo no encontrado en assets/logo1.ico")
+        except Exception as e:
+            print(f"Error al cargar el ícono: {e}")
+
+        # Tamaño inicial
+        width, height = 600, 400
         x = (window.winfo_screenwidth() // 2) - (width // 2)
         y = (window.winfo_screenheight() // 2) - (height // 2)
         window.geometry(f"{width}x{height}+{x}+{y}")
 
         # Frame principal
-        main_frame = tk.Frame(window, bg="#f0f5ff", padx=20, pady=20)
+        main_frame = ttk.Frame(window, padding="10")
         main_frame.pack(fill='both', expand=True)
 
         # Frame de búsqueda
-        search_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        search_frame.pack(fill='x', pady=(0, 20))
+        search_frame = ttk.Frame(main_frame)
+        search_frame.pack(fill='x', pady=(0, 10))
 
-        # Etiquetas y campos
-        def create_label_entry(parent, text, row, column):
-            tk.Label(
-                parent, 
-                text=text,
-                bg="#f0f5ff",
-                fg="#022e86",
-                font=("Helvetica", 10)
-            ).grid(row=row, column=column*2, padx=10, pady=5, sticky='e')
-            
-            entry = tk.Entry(
-                parent,
-                width=30
-            )
-            entry.grid(row=row, column=column*2 + 1, padx=5, pady=5, sticky='w')
-            return entry
-
-        # Frame para búsqueda
-        tk.Label(
+        ttk.Label(
             search_frame,
             text="ID Inscripción:",
-            bg="#f0f5ff",
-            fg="#022e86",
-            font=("Helvetica", 10, "bold")
+            font=('Helvetica', 9)
         ).pack(side='left', padx=5)
 
-        id_inscripcion_entry = tk.Entry(search_frame, width=15)
+        id_inscripcion_entry = ttk.Entry(search_frame, width=15)
         id_inscripcion_entry.pack(side='left', padx=5)
 
         # Frame para campos
-        fields_frame = tk.Frame(main_frame, bg="#f0f5ff")
-        fields_frame.pack(fill='both', expand=True)
+        fields_frame = ttk.Frame(main_frame)
+        fields_frame.pack(fill='both', expand=True, pady=5)
 
-        # Crear entradas
-        rut_entry = create_label_entry(fields_frame, "RUT Alumno:", 0, 0)
-        curso_entry = create_label_entry(fields_frame, "ID Curso:", 1, 0)
-        acta_entry = create_label_entry(fields_frame, "Número Acta:", 2, 0)
-        fecha_insc_entry = create_label_entry(fields_frame, "Fecha Inscripción:", 3, 0)
-        anio_entry = create_label_entry(fields_frame, "Año:", 4, 0)
+        # Configurar grid
+        fields_frame.grid_columnconfigure(1, weight=1)
+        fields_frame.grid_columnconfigure(3, weight=1)
 
-        fecha_term_entry = create_label_entry(fields_frame, "Fecha Término:", 0, 1)
-        empresa_entry = create_label_entry(fields_frame, "ID Empresa:", 1, 1)
-        sence_entry = create_label_entry(fields_frame, "Orden SENCE:", 2, 1)
-        folio_entry = create_label_entry(fields_frame, "ID Folio:", 3, 1)
+        def create_field(label, row, column, to_upper=True):
+            ttk.Label(
+                fields_frame,
+                text=label,
+                font=('Helvetica', 9)
+            ).grid(row=row, column=column*2, sticky='e', padx=5, pady=3)
+            
+            entry = ttk.Entry(fields_frame, width=25)
+            
+            if to_upper:
+                def to_uppercase(*args):
+                    value = entry.get()
+                    uppercase_value = value.upper()
+                    if value != uppercase_value:
+                        entry.delete(0, tk.END)
+                        entry.insert(0, uppercase_value)
+                
+                entry.bind('<KeyRelease>', to_uppercase)
+            
+            entry.grid(row=row, column=column*2 + 1, sticky='w', padx=5, pady=3)
+            return entry
 
-        # Método de llegada (combobox)
-        tk.Label(
+        # Crear campos
+        entries = {
+            'rut': create_field("RUT Alumno:", 0, 0),
+            'fecha_term': create_field("Fecha Término (YYYY-MM-DD):", 0, 1, to_upper=False),
+            'curso': create_field("ID Curso:", 1, 0),
+            'empresa': create_field("ID Empresa:", 1, 1),
+            'acta': create_field("Número Acta:", 2, 0),
+            'sence': create_field("Orden SENCE:", 2, 1),
+            'fecha_insc': create_field("Fecha Inscripción (YYYY-MM-DD):", 3, 0, to_upper=False),
+            'folio': create_field("ID Folio:", 3, 1),
+            'anio': create_field("Año:", 4, 0, to_upper=False)
+        }
+
+        # Método de llegada
+        ttk.Label(
             fields_frame,
             text="Método de Llegada:",
-            bg="#f0f5ff",
-            fg="#022e86",
-            font=("Helvetica", 10)
-        ).grid(row=4, column=2, padx=10, pady=5, sticky='e')
+            font=('Helvetica', 9)
+        ).grid(row=4, column=2, sticky='e', padx=5, pady=3)
 
         metodo_combo = ttk.Combobox(
             fields_frame,
             values=["PARTICULAR", "EMPRESA"],
             state="readonly",
-            width=27
+            width=22
         )
-        metodo_combo.grid(row=4, column=3, padx=5, pady=5, sticky='w')
+        metodo_combo.grid(row=4, column=3, sticky='w', padx=5, pady=3)
         metodo_combo.set("PARTICULAR")
+
+        def validate_date(date_str):
+            if not date_str:
+                return True
+            try:
+                datetime.strptime(date_str, '%Y-%m-%d')
+                return True
+            except ValueError:
+                return False
 
         def load_inscription_data():
             id_inscripcion = id_inscripcion_entry.get().strip()
@@ -1971,40 +1995,32 @@ class App:
                 messagebox.showwarning("Error", "Ingrese el ID de inscripción", parent=window)
                 return
 
-            inscription = fetch_inscription_by_id(id_inscripcion)
-            if not inscription:
-                messagebox.showerror("Error", f"No se encontró inscripción con ID {id_inscripcion}", parent=window)
-                return
+            try:
+                inscription = fetch_inscription_by_id(id_inscripcion)
+                if not inscription:
+                    messagebox.showerror("Error", f"No se encontró inscripción con ID {id_inscripcion}", parent=window)
+                    return
 
-            # Limpiar campos
-            for entry in [rut_entry, curso_entry, acta_entry, fecha_insc_entry, anio_entry,
-                        fecha_term_entry, empresa_entry, sence_entry, folio_entry]:
-                entry.delete(0, tk.END)
+                # Limpiar y llenar campos
+                for entry in entries.values():
+                    entry.delete(0, tk.END)
 
-            # Llenar campos
-            rut_entry.insert(0, inscription['id_alumno'] or '')
-            curso_entry.insert(0, inscription['id_curso'] or '')
-            acta_entry.insert(0, inscription['numero_acta'] or '')
-            if inscription['fecha_inscripcion']:
-                fecha_insc_entry.insert(0, inscription['fecha_inscripcion'].strftime('%Y-%m-%d'))
-            if inscription['fecha_termino_condicional']:
-                fecha_term_entry.insert(0, inscription['fecha_termino_condicional'].strftime('%Y-%m-%d'))
-            anio_entry.insert(0, inscription['anio_inscripcion'] or '')
-            empresa_entry.insert(0, inscription['id_empresa'] or '')
-            sence_entry.insert(0, inscription['ordenSence'] or '')
-            folio_entry.insert(0, inscription['idfolio'] or '')
-            
-            # Establecer método de llegada
-            metodo = inscription['metodo_llegada']
-            metodo_combo.set(metodo.upper() if metodo else "PARTICULAR")
-
-            # Botón de búsqueda
-            tk.Button(
-                search_frame,
-                text="Buscar",
-                style='Action.TButton',
-                command=load_inscription_data
-            ).pack(side='left', padx=10)
+                entries['rut'].insert(0, inscription['id_alumno'] or '')
+                entries['curso'].insert(0, inscription['id_curso'] or '')
+                entries['acta'].insert(0, inscription['numero_acta'] or '')
+                if inscription['fecha_inscripcion']:
+                    entries['fecha_insc'].insert(0, inscription['fecha_inscripcion'].strftime('%Y-%m-%d'))
+                if inscription['fecha_termino_condicional']:
+                    entries['fecha_term'].insert(0, inscription['fecha_termino_condicional'].strftime('%Y-%m-%d'))
+                entries['anio'].insert(0, str(inscription['anio_inscripcion']) if inscription['anio_inscripcion'] else '')
+                entries['empresa'].insert(0, inscription['id_empresa'] or '')
+                entries['sence'].insert(0, str(inscription['ordenSence']) if inscription['ordenSence'] else '')
+                entries['folio'].insert(0, str(inscription['idfolio']) if inscription['idfolio'] else '')
+                
+                metodo = inscription['metodo_llegada']
+                metodo_combo.set(metodo.upper() if metodo else "PARTICULAR")
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al cargar datos: {str(e)}", parent=window)
 
         def save_changes():
             id_inscripcion = id_inscripcion_entry.get().strip()
@@ -2012,35 +2028,77 @@ class App:
                 messagebox.showwarning("Error", "Ingrese el ID de inscripción", parent=window)
                 return
 
+            # Validar fechas
+            for field_name in ['fecha_insc', 'fecha_term']:
+                date_value = entries[field_name].get().strip()
+                if date_value and not validate_date(date_value):
+                    messagebox.showerror("Error", f"Formato de fecha inválido. Use YYYY-MM-DD", parent=window)
+                    return
+
+            # Si hay empresa, verificar/crear primero
+            empresa_id = entries['empresa'].get().strip()
+            if empresa_id:
+                success, result = verify_and_create_empresa(empresa_id)
+                if not success:
+                    messagebox.showerror("Error", f"Error al procesar empresa: {result}", parent=window)
+                    return
+                empresa_id = result
+
             update_data = {
-                'id_alumno': rut_entry.get().strip() or None,
-                'id_curso': curso_entry.get().strip() or None,
-                'numero_acta': acta_entry.get().strip() or None,
-                'fecha_inscripcion': fecha_insc_entry.get().strip() or None,
-                'fecha_termino_condicional': fecha_term_entry.get().strip() or None,
-                'anio_inscripcion': anio_entry.get().strip() or None,
+                'id_alumno': entries['rut'].get().strip() or None,
+                'id_curso': entries['curso'].get().strip() or None,
+                'numero_acta': entries['acta'].get().strip() or None,
+                'fecha_inscripcion': entries['fecha_insc'].get().strip() or None,
+                'fecha_termino_condicional': entries['fecha_term'].get().strip() or None,
+                'anio_inscripcion': entries['anio'].get().strip() or None,
                 'metodo_llegada': metodo_combo.get().lower() if metodo_combo.get() else None,
-                'id_empresa': empresa_entry.get().strip() or None,
-                'ordenSence': sence_entry.get().strip() or None,
-                'idfolio': folio_entry.get().strip() or None
+                'id_empresa': empresa_id or None,
+                'ordenSence': entries['sence'].get().strip() or None,
+                'idfolio': entries['folio'].get().strip() or None
             }
 
-            success, message = update_inscription(id_inscripcion, **update_data)
+            try:
+                success, message = update_inscription(id_inscripcion, **update_data)
+                if success:
+                    messagebox.showinfo("Éxito", message, parent=window)
+                    window.destroy()
+                    self.show_inscriptions()
+                else:
+                    messagebox.showerror("Error", message, parent=window)
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al guardar: {str(e)}", parent=window)
 
-            if success:
-                messagebox.showinfo("Éxito", message, parent=window)
-                window.destroy()
-                self.show_inscriptions()
-            else:
-                messagebox.showerror("Error", message, parent=window)
+        # Botones
+        ttk.Button(
+            search_frame,
+            text="Buscar",
+            command=load_inscription_data,
+            style='Action.TButton'
+        ).pack(side='left', padx=5)
 
-            # Botón guardar
-            tk.Button(
-                main_frame,
-                text="Guardar Cambios",
-                style='Action.TButton',
-                command=save_changes
-            ).pack(pady=20)
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x', pady=10)
+
+        ttk.Button(
+            button_frame,
+            text="Cancelar",
+            command=window.destroy,
+            style='Secondary.TButton'
+        ).pack(side='right', padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="Guardar Cambios",
+            command=save_changes,
+            style='Action.TButton'
+        ).pack(side='right', padx=5)
+
+        # Ajustar tamaño de la ventana al contenido
+        window.update_idletasks()
+        window.geometry("")
+        
+        # Hacer la ventana no redimensionable
+        window.resizable(False, False)
         
     def show_bulk_enrollment(self):
         from gui.bulk_enrollment import BulkEnrollment
@@ -2214,7 +2272,7 @@ class App:
             print(f"Error al mostrar cursos: {e}")
             traceback.print_exc()
     
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def add_course_window(self):
         """
         Ventana para añadir un nuevo curso, ajustada con el campo 'Valor' y sin fondo blanco.
@@ -2424,7 +2482,7 @@ class App:
         # Mostrar la ventana después de que todo esté construido
         window.deiconify()
 
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def edit_course_window(self):
         window = tk.Toplevel(self.root)
         window.title("Editar Curso")
@@ -2720,7 +2778,7 @@ class App:
             command=save_edited_course
         ).pack()
 
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def delete_course_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Curso") 
@@ -3259,7 +3317,7 @@ class App:
             command=window.destroy
         ).pack(side=tk.LEFT, padx=5)
 
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def delete_student_window(self):
         delete_window = tk.Toplevel(self.root)
         delete_window.title("Eliminar Alumno")
@@ -3383,7 +3441,7 @@ class App:
         ).pack(side=tk.LEFT, padx=5)
 
     
-    #@requiere_rol_gui("admin")
+    @requiere_rol_gui("admin")
     def edit_student_window(self):
             """
             Ventana para editar datos de un alumno existente.
@@ -4508,53 +4566,124 @@ class App:
 
     def show_payments_by_inscription(self):
         window = tk.Toplevel(self.root)
-        window.title("Pagos por Inscripción")
+        window.withdraw()  # Ocultar la ventana mientras se configura
+        window.title("Búsqueda de Pagos")
+        window.configure(bg="white")
+        window.grab_set()
 
         try:
-            window.iconbitmap('assets/logo1.ico')
+            if os.path.exists('assets/logo1.ico'):
+                window.iconbitmap('assets/logo1.ico')
         except Exception as e:
-            print(f"Error al cargar ícono: {e}")
+            print(f"Error al cargar el ícono: {e}")
 
-        width, height = 300, 200
-        window.geometry(f"{width}x{height}")
-        window.update_idletasks()
-        sw = window.winfo_screenwidth()
-        sh = window.winfo_screenheight()
-        x = (sw // 2) - (width // 2)
-        y = (sh // 2) - (height // 2)
-        window.geometry(f"{width}x{height}+{x}+{y}")
-        window.configure(bg="#022e86")
+        # Frame principal
+        main_frame = ttk.Frame(window, padding="10", style='White.TFrame')
+        main_frame.pack(fill='both', expand=True)
+
+        # Frame para el logo
+        logo_frame = ttk.Frame(main_frame, style='White.TFrame')
+        logo_frame.pack(fill='x', pady=5)
 
         try:
             logo = tk.PhotoImage(file='assets/logomarco.png')
-            logo_label = tk.Label(window, image=logo, bg="#022e86")
+            logo_label = ttk.Label(logo_frame, image=logo, style='White.TLabel')
             logo_label.image = logo
-            logo_label.pack(pady=10)
+            logo_label.pack()
         except Exception as e:
             print(f"Error al cargar logo: {e}")
 
-        tk.Label(window, text="ID Inscripción:", bg="#022e86", fg="white").pack(pady=10)
-        id_entry = tk.Entry(window, width=30)
-        id_entry.pack(pady=5)
+        # Frame para campos de búsqueda
+        search_frame = ttk.Frame(main_frame, style='White.TFrame')
+        search_frame.pack(fill='x', pady=10)
+
+        def create_search_field(label, row):
+            ttk.Label(
+                search_frame,
+                text=label,
+                style='White.TLabel'
+            ).grid(row=row, column=0, sticky='e', padx=5, pady=3)
+            
+            entry = ttk.Entry(search_frame, width=30)
+            entry.grid(row=row, column=1, sticky='w', padx=5, pady=3)
+            return entry
+
+        # Crear campos de búsqueda
+        id_inscripcion_entry = create_search_field("ID Inscripción:", 0)
+        rut_entry = create_search_field("RUT:", 1)
+        nombre_completo_entry = create_search_field("Nombre Completo:", 2)
 
         def search():
+            id_inscripcion = id_inscripcion_entry.get().strip()
+            rut = rut_entry.get().strip()
+            nombre_completo = nombre_completo_entry.get().strip()
+
+            # Verificar que al menos un campo tenga datos
+            if not any([id_inscripcion, rut, nombre_completo]):
+                messagebox.showwarning("Advertencia", "Ingrese al menos un criterio de búsqueda", parent=window)
+                return
+
             try:
-                id_inscripcion = int(id_entry.get().strip())
-                payments = fetch_payments_by_inscription(id_inscripcion)
+                # Convertir ID a número si está presente
+                id_inscripcion = int(id_inscripcion) if id_inscripcion else None
+                
+                # Llamar a la función de búsqueda
+                payments = fetch_payments_by_criteria(
+                    id_inscripcion=id_inscripcion,
+                    rut=rut if rut else None,
+                    nombre_completo=nombre_completo if nombre_completo else None
+                )
+
                 if payments:
-                    columns = ("id_pago", "tipo_pago", "modalidad_pago", "valor", "estado")
-                    headers = ("ID", "Tipo", "Modalidad", "Valor", "Estado")
+                    columns = ("id_pago", "id_inscripcion", "tipo_pago", "modalidad_pago", "valor", "estado")
+                    headers = ("ID Pago", "ID Inscripción", "Tipo", "Modalidad", "Valor", "Estado")
                     self._populate_tree(columns, headers, payments)
-                    self._update_title_label(f"Pagos de la Inscripción {id_inscripcion}")
-                    messagebox.showinfo("Resultado", f"Se hallaron {len(payments)} pagos.")
+                    self._update_title_label(f"Pagos Encontrados: {len(payments)}")
+                    messagebox.showinfo("Éxito", f"Se encontraron {len(payments)} pagos", parent=window)
+                    window.destroy()
                 else:
-                    messagebox.showinfo("Info", "No se encontraron pagos")
+                    messagebox.showinfo("Info", "No se encontraron pagos", parent=window)
+
             except ValueError:
-                messagebox.showerror("Error", "ID inválido")
+                messagebox.showerror("Error", "ID de inscripción inválido", parent=window)
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al buscar pagos: {str(e)}", parent=window)
 
-            window.destroy()
+        # Frame para botones
+        button_frame = ttk.Frame(main_frame, style='White.TFrame')
+        button_frame.pack(fill='x', pady=10)
 
-        tk.Button(window, text="Buscar", bg="#ADD8E6", command=search).pack(pady=20)
+        ttk.Button(
+            button_frame,
+            text="Cancelar",
+            command=window.destroy,
+            style='Secondary.TButton'
+        ).pack(side='right', padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="Buscar",
+            command=search,
+            style='Action.TButton'
+        ).pack(side='right', padx=5)
+
+        # Ajustar el tamaño de la ventana al contenido
+        window.update_idletasks()
+        window.geometry("")  # Esto hace que la ventana se ajuste al contenido exacto
+        
+        # Centrar la ventana
+        window_width = window.winfo_width()
+        window_height = window.winfo_height()
+        position_x = (window.winfo_screenwidth() // 2) - (window_width // 2)
+        position_y = (window.winfo_screenheight() // 2) - (window_height // 2)
+        window.geometry(f"+{position_x}+{position_y}")
+        
+        # Hacer la ventana no redimensionable
+        window.resizable(False, False)
+        
+        # Mostrar la ventana
+        window.deiconify()
+        window.focus_force()
 
     def update_payment_status_window(self):
         """
@@ -5538,13 +5667,6 @@ class App:
                 # Frame de botones al final de la ventana
                 button_frame = ttk.Frame(window)
                 button_frame.pack(side='bottom', pady=20)
-
-                # Estilo personalizado para los botones
-                style = ttk.Style()
-                style.configure('Custom.TButton',
-                            background='#00008B',
-                            foreground='white',
-                            padding=(20, 5))
 
                 ttk.Button(
                     button_frame,
@@ -6982,28 +7104,253 @@ class App:
 #================================================================
 #           Funciones de estado activo
 #================================================================
+    def _register_contact(self, tree):
+        selection = tree.selection()
+        if not selection:
+            messagebox.showwarning("Advertencia", "Seleccione un alumno")
+            return
+            
+        item = tree.item(selection[0])
+        id_inscripcion = item['values'][0]
 
-    def show_active_students(self):
-        """
-        Muestra la ventana con los alumnos que están actualmente cursando.
-        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Registrar Contacto")
+        dialog.geometry("400x500")
+        dialog.grab_set()
+        dialog.configure(bg="white")
+        
+        # Centrar la ventana
+        x = (dialog.winfo_screenwidth() // 2) - (400 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (500 // 2)
+        dialog.geometry(f"400x500+{x}+{y}")
+        
+        # Intentar cargar icono
         try:
-            # Limpiar contenido principal
+            if os.path.exists('assets/logo1.ico'):
+                dialog.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar el ícono: {e}")
+        
+        # Frame principal
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill='both', expand=True, padx=20, pady=10)
+        
+        ttk.Label(main_frame, text="Método de Contacto:").pack(pady=5)
+        metodo = ttk.Combobox(
+            main_frame, 
+            values=['llamada', 'mensaje', 'correo'], 
+            state='readonly',
+            width=28
+        )
+        metodo.pack(pady=5)
+        metodo.set('llamada')
+        
+        ttk.Label(main_frame, text="Asistencia Actual (%):").pack(pady=5)
+        asistencia = ttk.Entry(main_frame, width=30)
+        asistencia.pack(pady=5)
+        
+        ttk.Label(main_frame, text="Observaciones:").pack(pady=5)
+        observacion = tk.Text(main_frame, height=10, width=35)
+        observacion.pack(pady=5)
+        
+        def save():
+            try:
+                asist = float(asistencia.get())
+                if not (0 <= asist <= 100):
+                    raise ValueError("Asistencia debe estar entre 0 y 100")
+                
+                update_student_contact(
+                    id_inscripcion,
+                    asist,
+                    metodo.get(),
+                    observacion.get("1.0", "end-1c")
+                )
+                dialog.destroy()
+                self.show_current_students()  # Recargar la vista completa
+                
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
+        
+        # Frame para botones
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x', pady=20)
+
+        ttk.Button(
+            button_frame,
+            text="Cancelar",
+            command=dialog.destroy,
+            style='Secondary.TButton'
+        ).pack(side='right', padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="Guardar",
+            command=save,
+            style='Action.TButton'
+        ).pack(side='right', padx=5)
+
+    def show_contact_history(self):
+        # Obtener la selección actual
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("Advertencia", "Seleccione un alumno para ver su historial")
+            return
+            
+        item = self.tree.item(selection[0])
+        id_inscripcion = item['values'][0]
+        nombre_alumno = item['values'][2]
+
+        # Crear ventana de historial
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Historial de Contactos - {nombre_alumno}")
+        dialog.configure(bg="white")
+        
+        # Configurar tamaño y posición
+        width = 800
+        height = 500
+        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (dialog.winfo_screenheight() // 2) - (height // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+        dialog.grab_set()
+        
+        try:
+            if os.path.exists('assets/logo1.ico'):
+                dialog.iconbitmap('assets/logo1.ico')
+        except Exception as e:
+            print(f"Error al cargar el ícono: {e}")
+
+        # Frame principal
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill='both', expand=True, padx=10, pady=5)
+
+        # Frame para el treeview
+        tree_frame = ttk.Frame(main_frame)
+        tree_frame.pack(fill='both', expand=True)
+
+        # Scrollbars
+        vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
+        hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+
+        # Crear Treeview
+        history_tree = ttk.Treeview(
+            tree_frame,
+            selectmode="browse",
+            yscrollcommand=vscroll.set,
+            xscrollcommand=hscroll.set
+        )
+
+        # Configurar grid
+        history_tree.grid(row=0, column=0, sticky="nsew")
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll.grid(row=1, column=0, sticky="ew")
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
+        # Configurar scrollbars
+        vscroll.configure(command=history_tree.yview)
+        hscroll.configure(command=history_tree.xview)
+
+        # Definir columnas
+        columns = ("fecha", "asistencia", "metodo", "observacion")
+        headers = ("Fecha de Contacto", "Asistencia %", "Método", "Observaciones")
+
+        history_tree.config(columns=columns, show="headings")
+
+        # Configurar columnas
+        column_widths = {
+            "fecha": 150,
+            "asistencia": 100,
+            "metodo": 100,
+            "observacion": 400
+        }
+
+        for column, header in zip(columns, headers):
+            history_tree.heading(column, text=header, anchor=tk.CENTER)
+            width = column_widths.get(column, 100)
+            history_tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
+
+        # Cargar datos del historial
+        try:
+            conn = connect_db()
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+                SELECT 
+                    fecha_actualizacion,
+                    asistencia_current,
+                    metodo_contacto,
+                    observacion
+                FROM current_alumnos_history
+                WHERE id_inscripcion = %s
+                ORDER BY fecha_actualizacion DESC
+            """
+            
+            cursor.execute(query, (id_inscripcion,))
+            history = cursor.fetchall()
+            cursor.close()
+            conn.close()
+
+            for record in history:
+                history_tree.insert('', 'end', values=(
+                    record['fecha_actualizacion'].strftime('%Y-%m-%d %H:%M:%S'),
+                    f"{record['asistencia_current']:.1f}%",
+                    record['metodo_contacto'] if record['metodo_contacto'] else 'N/A',
+                    record['observacion'] if record['observacion'] else ''
+                ))
+
+        except Exception as e:
+            print(f"Error cargando historial: {e}")
+            messagebox.showerror("Error", f"Error al cargar el historial: {e}")
+
+        # Frame para botones
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x', pady=10)
+
+        ttk.Button(
+            button_frame,
+            text="Cerrar",
+            command=dialog.destroy,
+            style='Secondary.TButton'
+        ).pack(side='right', padx=5)
+
+    def show_current_students(self):
+        try:
+            # Actualizar la tabla de alumnos activos
+            update_current_students_table()
+            
+            # Limpiar el contenido principal
             self._clear_main_content()
             
-            # Actualizar título
-            self._update_title_label("Alumnos en Cursos Activos")
+            # Actualizar el título
+            self._update_title_label("Alumnos Activos")
             
-            # Crear frame para el contenido principal
+            # Crear frame principal
             content_frame = ttk.Frame(self.main_frame)
             content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-            # Frame para el treeview y scrollbars
+            # Frame para los botones
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=(0, 5))
+            
+            # Botones
+            ttk.Button(
+                button_frame,
+                text="Registrar Contacto",
+                command=lambda: self._register_contact(self.tree),
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                button_frame,
+                text="Ver Historial",
+                command=lambda: self.show_contact_history(),
+                style='Action.TButton'
+            ).pack(side=tk.LEFT, padx=2)
+
+            # Frame para el treeview
             tree_frame = ttk.Frame(content_frame)
             tree_frame.pack(fill=tk.BOTH, expand=True)
-            tree_frame.grid_rowconfigure(0, weight=1)
-            tree_frame.grid_columnconfigure(0, weight=1)
-
+            
             # Scrollbars
             vscroll = ttk.Scrollbar(tree_frame, orient="vertical")
             hscroll = ttk.Scrollbar(tree_frame, orient="horizontal")
@@ -7013,64 +7360,119 @@ class App:
                 tree_frame,
                 selectmode="extended",
                 yscrollcommand=vscroll.set,
-                xscrollcommand=hscroll.set
+                xscrollcommand=hscroll.set,
+                style='Taller.Treeview'  # Nuevo estilo personalizado
+            )
+
+            # Configurar estilo personalizado
+            style = ttk.Style()
+            style.configure(
+                "Taller.Treeview",
+                rowheight=40,     # Aumentar altura de las filas
+                font=('Segoe UI', 10)  # Opcional: ajustar fuente
+            )
+            
+            # También podemos ajustar la altura de los encabezados
+            style.configure(
+                "Taller.Treeview.Heading",
+                padding=10,
+                font=('Segoe UI', 10, 'bold')
             )
 
             # Configurar grid
             self.tree.grid(row=0, column=0, sticky="nsew")
             vscroll.grid(row=0, column=1, sticky="ns")
             hscroll.grid(row=1, column=0, sticky="ew")
+            tree_frame.grid_rowconfigure(0, weight=1)
+            tree_frame.grid_columnconfigure(0, weight=1)
 
             # Configurar scrollbars
             vscroll.configure(command=self.tree.yview)
             hscroll.configure(command=self.tree.xview)
 
+            # Configurar tags para colores
+            self.tree.tag_configure('contacto_reciente', background='#D4EDDA')  # Verde suave
+            self.tree.tag_configure('contacto_medio', background='#FFF3CD')     # Amarillo suave
+            self.tree.tag_configure('contacto_urgente', background='#F8D7DA')   # Rojo suave
+
+            # Definir columnas
+            columns = (
+                "id_inscripcion", "rut", "nombre_completo", "curso", 
+                "fecha_inicio", "fecha_termino", "asistencia", "ultimo_contacto", 
+                "metodo_contacto"
+            )
+            
+            headers = (
+                "ID", "RUT", "Nombre Completo", "Curso",
+                "F. Inicio", "F. Término", "Asistencia %", "Último Contacto",
+                "Método Contacto"
+            )
+
+            # Configurar Treeview
+            self.tree.config(columns=columns, show="headings")
+            
+            # Configurar columnas
+            column_widths = {
+                "id_inscripcion": 50,
+                "rut": 100,
+                "nombre_completo": 200,
+                "curso": 200,
+                "fecha_inicio": 100,
+                "fecha_termino": 100,
+                "asistencia": 100,
+                "ultimo_contacto": 120,
+                "metodo_contacto": 100
+            }
+
+            for column, header in zip(columns, headers):
+                self.tree.heading(column, text=header, anchor=tk.CENTER)
+                width = column_widths.get(column, 100)
+                self.tree.column(column, width=width, minwidth=60, anchor=tk.CENTER)
+
             # Menú contextual
             self.context_menu = tk.Menu(tree_frame, tearoff=0)
             self.context_menu.add_command(label="Copiar celda", command=self._copy_selected_cell)
             self.context_menu.add_command(label="Copiar fila", command=self._copy_selected_row)
+            self.context_menu.add_separator()
+            self.context_menu.add_command(label="Ver Historial", command=self.show_contact_history)
 
             # Bindings para el menú contextual
             self.tree.bind("<Button-3>", self._show_context_menu)
             self.tree.bind("<Button-1>", self._save_click_position)
             self.tree.bind("<ButtonRelease-3>", self._save_click_position)
 
-            # Configurar tags
-            self.tree.tag_configure('oddrow', background='#f5f5f5')
-            self.tree.tag_configure('evenrow', background='#ffffff')
+            # Cargar datos
+            students = fetch_active_students()
             
-            # Definir columnas
-            columns = ("N_Acta", "Nombre", "RUT", "ID_Curso")
-            headers = ("N° Acta", "Nombre Completo", "RUT", "Curso")
-
-            # Configurar Treeview
-            self.tree.config(columns=columns, show="headings")
-            
-            # Configurar anchos de columnas
-            column_widths = {
-                "N_Acta": 100,
-                "Nombre": 300,
-                "RUT": 120,
-                "ID_Curso": 150
-            }
-
-            # Aplicar configuraciones de columnas
-            for column, header in zip(columns, headers):
-                self.tree.heading(column, text=header, anchor=tk.CENTER)
-                width = column_widths.get(column, 100)
-                self.tree.column(column, width=width, minwidth=50, anchor=tk.CENTER)
-
-            # Obtener y mostrar datos
-            active_students = fetch_active_students()
-            
-            for i, student in enumerate(active_students):
-                tag = 'evenrow' if i % 2 == 0 else 'oddrow'
-                self.tree.insert("", "end", values=student, tags=(tag,))
+            for student in students:
+                # Determinar color basado en la fecha de último contacto
+                if student['fecha_actualizacion']:
+                    days_diff = (datetime.now() - student['fecha_actualizacion']).days
+                    if days_diff <= 5:
+                        tag = ('contacto_reciente',)
+                    elif days_diff <= 7:
+                        tag = ('contacto_medio',)
+                    else:
+                        tag = ('contacto_urgente',)
+                else:
+                    tag = ('contacto_urgente',)
+                
+                self.tree.insert('', 'end', values=(
+                    student['id_inscripcion'],
+                    student['rut'],
+                    student['nombre_completo'],
+                    student['nombre_curso'],
+                    student['fecha_inscripcion'].strftime('%Y-%m-%d'),
+                    student['fecha_termino_condicional'].strftime('%Y-%m-%d'),
+                    f"{student['asistencia_current']:.1f}%",
+                    student['fecha_actualizacion'].strftime('%Y-%m-%d') if student['fecha_actualizacion'] else 'Sin contacto',
+                    student['metodo_contacto'] if student['metodo_contacto'] else 'N/A'
+                ), tags=tag)
 
         except Exception as e:
             print(f"Error al mostrar alumnos activos: {e}")
-            import traceback
-            traceback.print_exc()
+            messagebox.showerror("Error", f"Error al mostrar alumnos activos: {e}")
+
 
 # ------------------------ MAIN ------------------------
 if __name__ == "__main__":

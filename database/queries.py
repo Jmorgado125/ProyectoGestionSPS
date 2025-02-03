@@ -756,7 +756,39 @@ def update_inscription(id_inscripcion, **kwargs):
             conn.close()
     
     return False, "Error de conexión con la base de datos"
-    
+
+def verify_and_create_empresa(empresa_id):
+    """
+    Verifica si una empresa existe y la crea si no existe.
+    El ID y nombre de la empresa serán el mismo valor en mayúsculas.
+    """
+    try:
+        # Convertir a mayúsculas
+        empresa_id = empresa_id.strip().upper()
+        
+        # Consultar si la empresa existe
+        conn = connect_db()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT id_empresa FROM empresa WHERE id_empresa = %s", (empresa_id,))
+        exists = cursor.fetchone()
+        
+        if not exists:
+            # Si no existe, crear la empresa
+            cursor.execute("""
+                INSERT INTO empresa (id_empresa, rut_empresa)
+                VALUES (%s, %s)
+            """, (empresa_id, ''))
+            
+            conn.commit()
+        
+        cursor.close()
+        conn.close()
+        return True, empresa_id
+        
+    except Exception as e:
+        print(f"Error al verificar/crear empresa: {e}")
+        return False, str(e)    
 
 def validate_alumno_exists(rut):
     """Verifica si existe un alumno con el RUT especificado."""
@@ -1219,6 +1251,184 @@ def fetch_active_students():
             cursor.close()
             conn.close()
     return []
+
+def fetch_payments_by_criteria(id_inscripcion=None, rut=None, nombre_completo=None):
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        
+        query = """
+            SELECT DISTINCT p.* 
+            FROM pagos p
+            INNER JOIN inscripciones i ON p.id_inscripcion = i.id_inscripcion
+            INNER JOIN alumnos a ON i.id_alumno = a.rut
+            WHERE 1=1
+        """
+        params = []
+
+        if id_inscripcion:
+            query += " AND p.id_inscripcion = %s"
+            params.append(id_inscripcion)
+        if rut:
+            query += " AND a.rut = %s"
+            params.append(rut)
+        if nombre_completo:
+            query += " AND CONCAT(a.nombre, ' ', a.apellido) LIKE %s"
+            params.append(f"%{nombre_completo}%")
+
+        cursor.execute(query, params)
+        payments = cursor.fetchall()
+        
+        # Convertir a lista de diccionarios
+        columns = [desc[0] for desc in cursor.description]
+        result = []
+        for row in payments:
+            result.append(dict(zip(columns, row)))
+
+        cursor.close()
+        conn.close()
+        return result
+
+    except Exception as e:
+        print(f"Error en fetch_payments_by_criteria: {e}")
+        raise
+
+def update_current_students_table():
+    """Actualiza la tabla current_alumnos basado en las fechas de inscripción"""
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        
+        # Obtenemos las inscripciones inactivas una sola vez para mejorar rendimiento
+        cursor.execute("""
+            WITH inscripciones_inactivas AS (
+                SELECT i.id_inscripcion 
+                FROM inscripciones i 
+                WHERE i.fecha_termino_condicional < CURDATE()
+            )
+            DELETE ca, cah
+            FROM current_alumnos ca
+            LEFT JOIN current_alumnos_history cah ON ca.id_inscripcion = cah.id_inscripcion
+            WHERE ca.id_inscripcion IN (SELECT id_inscripcion FROM inscripciones_inactivas)
+        """)
+        
+        # Insertar nuevos alumnos activos usando una subconsulta más eficiente
+        cursor.execute("""
+            INSERT INTO current_alumnos 
+                (id_inscripcion, asistencia_current, metodo_contacto, fecha_actualizacion)
+            SELECT 
+                i.id_inscripcion, 
+                0,
+                NULL,
+                NULL
+            FROM inscripciones i
+            LEFT JOIN current_alumnos ca ON i.id_inscripcion = ca.id_inscripcion
+            WHERE i.fecha_inscripcion <= CURDATE() 
+            AND i.fecha_termino_condicional >= CURDATE()
+            AND ca.id_inscripcion IS NULL
+        """)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Error actualizando tabla current_alumnos: {e}")
+        return False
+
+def update_student_contact(id_inscripcion, asistencia, metodo, observacion):
+    """Actualiza el contacto de un alumno y registra en el historial"""
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        
+        # Verificar primero que la inscripción existe y está activa
+        cursor.execute("""
+            SELECT 1 FROM inscripciones 
+            WHERE id_inscripcion = %s 
+            AND fecha_termino_condicional >= CURDATE()
+            AND fecha_inscripcion <= CURDATE()
+        """, (id_inscripcion,))
+        
+        if not cursor.fetchone():
+            raise ValueError("La inscripción no existe o no está activa")
+            
+        # Transacción para asegurar la integridad de los datos
+        cursor.execute("START TRANSACTION")
+        try:
+            # Registrar en el historial
+            cursor.execute("""
+                INSERT INTO current_alumnos_history 
+                    (id_inscripcion, asistencia_current, metodo_contacto, observacion)
+                VALUES (%s, %s, %s, %s)
+            """, (id_inscripcion, asistencia, metodo, observacion))
+            
+            # Actualizar la tabla current_alumnos
+            cursor.execute("""
+                UPDATE current_alumnos
+                SET asistencia_current = %s,
+                    metodo_contacto = %s,
+                    observacion = %s,
+                    fecha_actualizacion = CURRENT_TIMESTAMP
+                WHERE id_inscripcion = %s
+            """, (asistencia, metodo, observacion, id_inscripcion))
+            
+            cursor.execute("COMMIT")
+        except:
+            cursor.execute("ROLLBACK")
+            raise
+            
+        conn.close()
+    except Exception as e:
+        print(f"Error actualizando contacto: {e}")
+        raise
+
+def fetch_active_students():
+    """Obtiene la lista de alumnos activos con su información"""
+    try:
+        conn = connect_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        query = """
+            WITH alumnos_activos AS (
+                SELECT i.id_inscripcion
+                FROM inscripciones i
+                WHERE i.fecha_termino_condicional >= CURDATE()
+                AND i.fecha_inscripcion <= CURDATE()
+            )
+            SELECT 
+                i.id_inscripcion,
+                a.rut,
+                CONCAT(a.nombre, ' ', a.apellido) as nombre_completo,
+                c.nombre_curso,
+                i.fecha_inscripcion,
+                i.fecha_termino_condicional,
+                COALESCE(ca.asistencia_current, 0) as asistencia_current,
+                ca.fecha_actualizacion,
+                ca.metodo_contacto,
+                ca.observacion,
+                DATEDIFF(CURDATE(), ca.fecha_actualizacion) as dias_ultimo_contacto
+            FROM alumnos_activos aa
+            INNER JOIN inscripciones i ON aa.id_inscripcion = i.id_inscripcion
+            INNER JOIN alumnos a ON i.id_alumno = a.rut
+            INNER JOIN cursos c ON i.id_curso = c.id_curso
+            LEFT JOIN current_alumnos ca ON i.id_inscripcion = ca.id_inscripcion
+            ORDER BY 
+                CASE 
+                    WHEN ca.fecha_actualizacion IS NULL THEN 1 
+                    ELSE 0 
+                END,
+                ca.fecha_actualizacion DESC
+        """
+        
+        cursor.execute(query)
+        result = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return result
+    except Exception as e:
+        print(f"Error obteniendo alumnos activos: {e}")
+        raise
 # =======================================
 #             PAGOS
 # =======================================
