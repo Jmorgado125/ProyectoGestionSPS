@@ -1,36 +1,120 @@
-# Gestión de Cursos
+# GestióSPS - Sistema de Gestión de Cursos y Certificaciones Marítimas 🚢
 
-Proyecto de escritorio (Tkinter + MySQL) para gestionar Cursos y Alumnos.
+<div align="center">
 
-## Requisitos
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![MySQL](https://img.shields.io/badge/MySQL-8.0+-blue.svg)](https://www.mysql.com/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-- Python 3.8+
-- mysql-connector-python
-- Una base de datos MySQL con el nombre `empresa_cursos`
-- Tablas creadas (Cursos, Alumnos, etc.) siguiendo la estructura:
+</div>
 
+## 📋 Descripción
+
+GestióSPS es un sistema de escritorio robusto desarrollado por Jorge Morgado para la gestión integral de cursos y certificaciones marítimas. El sistema facilita el manejo de matrículas, inscripciones, pagos, y generación de documentación oficial para instituciones de capacitación marítima.
+
+### 🌟 Características Principales
+
+- **Gestión de Cursos**
+  - Administración de cursos presenciales y online
+  - Control de números de acta y resoluciones
+  - Seguimiento de horas cronológicas y pedagógicas
+
+- **Gestión de Alumnos**
+  - Registro completo de información personal
+  - Historial académico
+  - Control de asistencia
+  - Seguimiento de certificaciones
+
+- **Sistema de Pagos**
+  - Generación de órdenes de compra
+  - Control de pagos y cuotas
+  - Gestión de pagos SENCE
+  - Emisión de facturas y comprobantes
+
+- **Documentación Oficial**
+  - Generación automatizada de documentos oficiales:
+    - Apéndices 4 y 6
+    - Títulos nacionales e internacionales
+    - Certificados médicos internacionales
+    - Habilitaciones para naves mayores y menores
+    - Cartas OMI
+
+- **Libros de Clases**
+  - Registro digital de asistencia
+  - Control de contenidos por sesión
+  - Gestión de evaluaciones
+  - Reportes de cumplimiento
+
+## 🔧 Instalación
+
+### Prerrequisitos
+
+```bash
+# Python 3.8 o superior
+# MySQL 8.0 o superior
+# Dependencias del sistema
+pip install -r requirements.txt
+```
+
+### Configuración de la Base de Datos
+
+1. Crear una base de datos MySQL
 ```sql
-CREATE TABLE IF NOT EXISTS Cursos (
-    id_curso INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(100) NOT NULL,
-    descripcion TEXT,
-    fecha_inicio DATE NOT NULL,
-    fecha_termino DATE NOT NULL,
-    modalidad ENUM('Presencial', 'Elearning') NOT NULL,
-    ubicacion VARCHAR(200)
-);
+CREATE DATABASE cursosmarina;
+```
 
-CREATE TABLE IF NOT EXISTS Alumnos (
-    id_alumno INT AUTO_INCREMENT PRIMARY KEY,
-    nombre_completo VARCHAR(150) NOT NULL,
-    rut VARCHAR(20) UNIQUE NOT NULL,
-    correo VARCHAR(100),
-    telefono VARCHAR(20),
-    profesion VARCHAR(50),
-    direccion VARCHAR(200),
-    ciudad VARCHAR(50),
-    comuna VARCHAR(50)
-);
+2. Importar el esquema
+```bash
+mysql -u usuario -p cursosmarina < esquema.sql
+```
 
--- etc. para Inscripciones, Facturación, ControlInterno, etc.
+3. Configurar credenciales en `database/db_config.py`
 
+## 🚀 Uso
+
+1. Ejecutar el archivo principal:
+```bash
+python main.py
+```
+
+2. Login con credenciales de administrador
+3. Acceder a los diferentes módulos desde el menú principal
+
+## 🛠️ Tecnologías Utilizadas
+
+- **Frontend**: Tkinter con tema personalizado
+- **Backend**: Python 3.8+
+- **Base de Datos**: MySQL 8.0+
+- **Generación de Documentos**: docxtpl
+- **Interfaz Gráfica**: Tkinter, ttk
+- **Manejo de Imágenes**: Pillow
+- **Exportación de Datos**: openpyxl, pandas
+
+## 📊 Arquitectura del Sistema
+
+```
+jmorgado125-proyectogestionsps/
+├── assets/            # Recursos gráficos
+├── database/          # Configuración y queries de BD
+├── formatos/         # Plantillas de documentos
+├── gui/              # Interfaces gráficas
+│   └── tramitaciones/ # Módulos de documentación
+└── helpers/          # Utilidades y funciones auxiliares
+```
+
+## 👨‍💻 Autor
+
+**Jorge Morgado**
+- Email: [jorge.morgado.m@mail.pucv.cl](mailto:jorge.morgado.m@mail.pucv.cl)
+
+## 📄 Licencia
+
+Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
+
+## 🎯 Roadmap
+
+- [ ] Implementación de dashboard con estadísticas
+- [ ] Integración con servicios web de Directemar
+- [ ] Sistema de notificaciones por email
+- [ ] Módulo de gestión de instructores
+- [ ] Aplicación móvil complementaria
