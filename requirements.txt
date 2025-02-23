@@ -1,0 +1,7 @@
+mysql-connector-python
+pillow
+docxtpl
+tkinterdnd2
+tkcalendar
+pandas
+openpyxl
